@@ -1,26 +1,67 @@
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  ScrollView 
+import {
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-// ใช้ไอคอนยอดฮิตของ Expo (มีติดมากับตัวโครงการอยู่แล้วไม่ต้องลงเพิ่ม)
-import { MaterialCommunityIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
+import { supabase } from '../lib/supabase';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert(
+        'ข้อมูลไม่ครบถ้วน', 
+        'กรุณากรอก "อีเมล" และ "รหัสผ่าน" ให้ครบถ้วนเพื่อเข้าสู่ระบบครับ'
+      );
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    });
+    setLoading(false);
+
+    if (error) {
+      // แปลง Error ของ Supabase ให้อ่านง่าย
+      let errorMessage = error.message;
+      if (errorMessage.includes('Invalid login credentials')) {
+        errorMessage = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบใหม่อีกครั้ง\n\n(หากคุณเพิ่งสมัครสมาชิก อย่าลืมเข้าไปกดลิงก์ยืนยันในอีเมลก่อนนะครับ)';
+      } else if (errorMessage.includes('Email not confirmed')) {
+        errorMessage = 'คุณยังไม่ได้ยืนยันอีเมล กรุณาเข้าไปกดลิงก์ยืนยันในกล่องจดหมายของคุณก่อนเข้าสู่ระบบครับ';
+      }
+
+      Alert.alert('เข้าสู่ระบบไม่สำเร็จ', errorMessage);
+    } else {
+      Alert.alert(
+        'ยินดีต้อนรับกลับ!', 
+        'เข้าสู่ระบบเรียบร้อยแล้ว กำลังพาท่านเข้าสู่หน้าหลัก...'
+      );
+      router.replace('/family-setup');
+    }
+  };
 
   return (
-    <SafeAreaView className="flex-1" style={styles.container}>
+    <SafeAreaView style={styles.container}>
       {/* ใช้ ScrollView เพื่อให้หน้าจอไม่ล้นเวลาคีย์บอร์ดเด้งขึ้นมา */}
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        
+
         {/* =========================================================
             1. TOP NAVBAR
            ========================================================= */}
@@ -39,13 +80,7 @@ export default function LoginScreen() {
             2. LOGO ILLUSTRATION AREA (ช่องว่างรูปภาพ)
            ========================================================= */}
         <View style={styles.imageContainer}>
-          {/* TODO: ตรงนี้เว้นช่องไว้ให้สำหรับใส่รูปภาพมีมคนกอดกันนะครับ 
-            เวลาใช้จริงให้ import { Image } from 'react-native' แล้วนำมาแทนที่ View ด้านล่างนี้ได้เลย
-            ตัวอย่าง: <Image source={require('../assets/hug.png')} style={styles.logoImage} />
-          */}
-          <View style={styles.imagePlaceholder}>
-            <Text style={styles.placeholderText}>[ ช่องสำหรับใส่รูปภาพมีมคนกอดกัน ]</Text>
-          </View>
+          <Image source={require('@/assets/images/iconlnw.png')} style={styles.logoImage} />
         </View>
 
         {/* =========================================================
@@ -60,7 +95,7 @@ export default function LoginScreen() {
             4. LOGIN FORM CARD
            ========================================================= */}
         <View style={styles.card}>
-          
+
           {/* ช่องกรอกอีเมล */}
           <View style={styles.inputWrapper}>
             <Text style={styles.label}>อีเมล</Text>
@@ -105,16 +140,27 @@ export default function LoginScreen() {
 
           {/* ปุ่มเข้าสู่ระบบ (ทำเอฟเฟกต์ปุ่มหนา/มีเงาด้านหลัง) */}
           <View style={styles.loginBtnShadow}>
-            <TouchableOpacity style={styles.loginBtn} activeOpacity={0.8}>
-              <Text style={styles.loginBtnText}>เข้าสู่ระบบ</Text>
-              <MaterialCommunityIcons name="login" size={20} color="#1e293b" />
+            <TouchableOpacity
+              style={styles.loginBtn}
+              activeOpacity={0.8}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#1e293b" />
+              ) : (
+                <>
+                  <Text style={styles.loginBtnText}>เข้าสู่ระบบ</Text>
+                  <MaterialCommunityIcons name="login" size={20} color="#1e293b" />
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
           {/* ปุ่มลงทะเบียนใหม่ */}
           <View style={styles.registerGroup}>
             <Text style={styles.registerHint}>ยังไม่มีบัญชีใช่ไหม?</Text>
-            <TouchableOpacity style={styles.registerBtn}>
+            <TouchableOpacity style={styles.registerBtn} onPress={() => router.push('/register')}>
               <Text style={styles.registerBtnText}>ลงทะเบียนใหม่</Text>
             </TouchableOpacity>
           </View>
@@ -125,7 +171,7 @@ export default function LoginScreen() {
             5. FEATURE BADGES (การ์ดเล็ก 2 ฝั่งด้านล่าง)
            ========================================================= */}
         <View style={styles.badgeGrid}>
-          
+
           {/* การ์ดผู้เชี่ยวชาญ */}
           <View style={styles.badgeItem}>
             <View style={styles.badgeIconBox}>
@@ -153,7 +199,7 @@ export default function LoginScreen() {
            ========================================================= */}
         <View style={styles.footer}>
           <FontAwesome5 name="accessible-icon" size={24} color="#cbd5e1" />
-          <MaterialCommunityIcons name="blind" size={24} color="#cbd5e1" />
+          <FontAwesome5 name="blind" size={24} color="#cbd5e1" />
           <MaterialCommunityIcons name="ear-hearing" size={24} color="#cbd5e1" />
         </View>
 
@@ -174,12 +220,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 30,
   },
-  
+
   // 1. Top Navbar
   navbar: {
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingVertical: 16,
@@ -212,28 +258,16 @@ const styles = StyleSheet.create({
     top: -1,
   },
 
-  // 2. Image Placeholder Area
+  // 2. Image Area
   imageContainer: {
     marginTop: 24,
     marginBottom: 16,
+    backgroundColor: 'transparent',
   },
-  imagePlaceholder: {
-    width: 180,
-    height: 180,
-    backgroundColor: '#f0fdf4',
-    borderWidth: 2,
-    borderColor: '#bbf7d0',
-    borderStyle: 'dashed',
-    borderRadius: 40, // ทำขอบมนมาก ๆ แบบในรูปภาพ
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  placeholderText: {
-    fontSize: 12,
-    color: '#16a34a',
-    textAlign: 'center',
-    opacity: 0.6,
+  logoImage: {
+    width: 160,
+    height: 160,
+    borderRadius: 36,
   },
 
   // 3. Welcome Text
@@ -276,7 +310,7 @@ const styles = StyleSheet.create({
   },
   passwordLabelRow: {
     flexDirection: 'row',
-    justifyContent: 'between',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   forgotPassword: {
@@ -314,7 +348,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#166534', // ส่วนสีเข้มด้านหลังที่หนาขึ้นมา
     borderRadius: 12,
     marginTop: 12,
-    paddingBottom: 4, 
+    paddingBottom: 4,
   },
   loginBtn: {
     backgroundColor: '#3cdb7e',
@@ -364,7 +398,7 @@ const styles = StyleSheet.create({
     width: '90%',
     maxWidth: 360,
     flexDirection: 'row',
-    justifyContent: 'between',
+    justifyContent: 'space-between',
     gap: 12,
     marginTop: 20,
   },
