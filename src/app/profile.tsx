@@ -1,10 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -39,6 +41,8 @@ export default function ProfileScreen() {
 
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [newAvatarImage, setNewAvatarImage] = useState<string | null>(null);
   const [familyCode, setFamilyCode] = useState('ไม่มีรหัส');
   const [fallAlerts, setFallAlerts] = useState(true);
   const [activitySummary, setActivitySummary] = useState(true);
@@ -88,6 +92,7 @@ export default function ProfileScreen() {
 
       setFullName(data?.full_name || meta?.full_name || '');
       setPhoneNumber(data?.phone || meta?.phone || '');
+      setAvatarUrl(data?.avatar_url || meta?.avatar_url || null);
       setFallAlerts(data?.fall_alerts ?? true);
       setActivitySummary(data?.activity_summary ?? true);
       setEmergencySms(data?.emergency_sms ?? false);
@@ -109,6 +114,19 @@ export default function ProfileScreen() {
     }
   };
 
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, // แก้ไขตรงนี้ให้ใช้ Enum ที่ถูกต้องของ Expo เพื่อแก้ Syntax Error
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      setNewAvatarImage(result.assets[0].uri);
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
@@ -117,10 +135,34 @@ export default function ProfileScreen() {
         return;
       }
 
+      let finalAvatarUrl = avatarUrl;
+
+      // อัปโหลดรูปภาพใหม่ถ้ามีการเลือก
+      if (newAvatarImage) {
+        const fileName = `profile-${userId}-${Date.now()}.jpg`;
+        const response = await fetch(newAvatarImage);
+        const blob = await response.blob();
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, blob, {
+            contentType: 'image/jpeg',
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error('อัปโหลดรูปล้มเหลว: ' + uploadError.message);
+        }
+
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+        finalAvatarUrl = publicUrl;
+      }
+
       const updates = {
         id: userId,
         full_name: fullName,
         phone: phoneNumber,
+        avatar_url: finalAvatarUrl,
         fall_alerts: fallAlerts,
         activity_summary: activitySummary,
         emergency_sms: emergencySms,
@@ -213,6 +255,9 @@ export default function ProfileScreen() {
     ]);
   };
 
+  // ดึงค่า URI ของรูปโปรไฟล์ออกมารอไว้ข้างนอก เพื่อให้โค้ดส่วน JSX สะอาดและปลอดภัยขึ้น
+  const displayAvatarUri = newAvatarImage || avatarUrl;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
@@ -238,14 +283,18 @@ export default function ProfileScreen() {
 
           {/* Profile Picture Section */}
           <View style={styles.profileHeader}>
-            <View style={styles.avatarContainer}>
+            <TouchableOpacity style={styles.avatarContainer} onPress={pickImage}>
               <View style={styles.avatarCircle}>
-                <MaterialCommunityIcons name="account-plus-outline" size={40} color="#94a3b8" />
+                {displayAvatarUri ? (
+                  <Image source={{ uri: displayAvatarUri }} style={{ width: 76, height: 76, borderRadius: 38 }} />
+                ) : (
+                  <MaterialCommunityIcons name="account-plus-outline" size={40} color="#94a3b8" />
+                )}
               </View>
-              <TouchableOpacity style={styles.cameraBadge}>
+              <View style={styles.cameraBadge}>
                 <MaterialCommunityIcons name="camera" size={16} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
+              </View>
+            </TouchableOpacity>
             <Text style={styles.profileTitle}>แก้ไขโปรไฟล์</Text>
             <Text style={styles.profileSubtitle}>จัดการข้อมูลส่วนตัวของคุณ</Text>
           </View>

@@ -25,10 +25,29 @@ export default function DashboardScreen() {
   ]);
   const [members, setMembers] = useState<any[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
+  const [userProfile, setUserProfile] = useState<any>(null);
 
   useEffect(() => {
     loadFamilyMembers();
+    loadUserProfile();
   }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name, avatar_url')
+        .eq('id', session.user.id)
+        .single();
+      if (!error && data) {
+        setUserProfile(data);
+      }
+    } catch (e) {
+      console.log('Error loading user profile:', e);
+    }
+  };
 
   const loadFamilyMembers = async () => {
     try {
@@ -91,7 +110,11 @@ export default function DashboardScreen() {
           </View>
         </View>
         <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/profile')}>
-          <MaterialCommunityIcons name="account-outline" size={24} color="#64748b" />
+          {userProfile?.avatar_url ? (
+            <Image source={{ uri: userProfile.avatar_url }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+          ) : (
+            <MaterialCommunityIcons name="account-outline" size={24} color="#64748b" />
+          )}
         </TouchableOpacity>
       </View>
 

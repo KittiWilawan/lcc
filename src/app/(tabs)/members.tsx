@@ -36,9 +36,12 @@ export default function MembersScreen() {
   const router = useRouter();
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<any>(null);
 
-  // Add Member Modal State
+  // Add/Edit Member Modal State
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [editingAvatarUrl, setEditingAvatarUrl] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('สมาชิก (Member)');
   const [newImage, setNewImage] = useState<string | null>(null);
@@ -47,7 +50,25 @@ export default function MembersScreen() {
 
   useEffect(() => {
     loadMembers();
+    loadUserProfile();
   }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name, avatar_url')
+        .eq('id', session.user.id)
+        .single();
+      if (!error && data) {
+        setUserProfile(data);
+      }
+    } catch (e) {
+      console.log('Error loading user profile:', e);
+    }
+  };
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -67,11 +88,64 @@ export default function MembersScreen() {
     }
   };
 
+  const openAddModal = () => {
+    setEditingMemberId(null);
+    setEditingAvatarUrl(null);
+    setNewName('');
+    setNewRole('สมาชิก (Member)');
+    setNewImage(null);
+    setNewImageBase64(null);
+    setShowAddModal(true);
+  };
+
+  const openEditModal = (member: FamilyMember) => {
+    setEditingMemberId(member.id);
+    setEditingAvatarUrl(member.avatar_url);
+    setNewName(member.display_name);
+    setNewRole(member.role);
+    setNewImage(member.avatar_url); // แสดงรูปเดิม
+    setNewImageBase64(null);
+    setShowAddModal(true);
+  };
+
+  const handleDeleteMember = (member: FamilyMember) => {
+    Alert.alert(
+      'ยืนยันการลบ',
+      `คุณแน่ใจหรือไม่ว่าต้องการลบ "${member.display_name}" ออกจากครอบครัว?`,
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ลบ', style: 'destructive', onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('family_members')
+                .delete()
+                .eq('id', member.id);
+              if (error) throw error;
+              Alert.alert('สำเร็จ', 'ลบสมาชิกเรียบร้อยแล้ว');
+              loadMembers();
+            } catch (error: any) {
+              Alert.alert('เกิดข้อผิดพลาด', error.message);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleSaveMember = async () => {
-    if (!newName.trim() || !newImage) {
-      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อและเลือกรูปภาพใบหน้า (จำเป็นสำหรับ AI)');
+    const isEditing = !!editingMemberId;
+
+    if (!newName.trim()) {
+      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อ');
       return;
     }
+    // ถ้าเป็นการเพิ่มใหม่ ต้องมีรูป
+    if (!isEditing && !newImage) {
+      Alert.alert('ข้อมูลไม่ครบ', 'กรุณาเลือกรูปภาพใบหน้า (จำเป็นสำหรับ AI)');
+      return;
+    }
+
     setSaving(true);
     try {
       const familyId = await AsyncStorage.getItem('familyId');
@@ -82,12 +156,13 @@ export default function MembersScreen() {
         return;
       }
 
-      let avatarUrl = null;
+      // ใช้รูปเดิมเป็นค่าเริ่มต้น (สำหรับโหมดแก้ไข)
+      let avatarUrl = isEditing ? editingAvatarUrl : null;
 
-      if (newImage) {
+      // ถ้ามีการเลือกรูปใหม่ (ต่างจากรูปเดิม) ให้อัปโหลด
+      const isNewImageSelected = newImage && newImage !== editingAvatarUrl;
+      if (isNewImageSelected) {
         const fileName = `avatar-${Date.now()}.jpg`;
-
-        // ใช้วิธีดึง Blob จาก URI แทน Base64 ซึ่งชัวร์กว่าทั้งบน Web และ Mobile
         const response = await fetch(newImage);
         const blob = await response.blob();
 
@@ -107,19 +182,37 @@ export default function MembersScreen() {
         avatarUrl = publicUrl;
       }
 
-      const { error: insertError } = await supabase.from('family_members').insert([{
-        family_id: familyId,
-        display_name: newName,
-        role: newRole,
-        avatar_url: avatarUrl,
-        device_registered: false,
-        is_tracked: false
-      }]);
+      if (isEditing) {
+        // === โหมดแก้ไข ===
+        const { error: updateError } = await supabase
+          .from('family_members')
+          .update({
+            display_name: newName,
+            role: newRole,
+            avatar_url: avatarUrl,
+          })
+          .eq('id', editingMemberId);
 
-      if (insertError) throw new Error('ไม่สามารถเพิ่มข้อมูลสมาชิกได้: ' + insertError.message);
+        if (updateError) throw new Error('ไม่สามารถแก้ไขข้อมูลสมาชิกได้: ' + updateError.message);
+        Alert.alert('สำเร็จ', 'แก้ไขข้อมูลสมาชิกเรียบร้อยแล้ว');
+      } else {
+        // === โหมดเพิ่มใหม่ ===
+        const { error: insertError } = await supabase.from('family_members').insert([{
+          family_id: familyId,
+          display_name: newName,
+          role: newRole,
+          avatar_url: avatarUrl,
+          device_registered: false,
+          is_tracked: false
+        }]);
 
-      Alert.alert('สำเร็จ', 'เพิ่มสมาชิกเรียบร้อยแล้ว');
+        if (insertError) throw new Error('ไม่สามารถเพิ่มข้อมูลสมาชิกได้: ' + insertError.message);
+        Alert.alert('สำเร็จ', 'เพิ่มสมาชิกเรียบร้อยแล้ว');
+      }
+
       setShowAddModal(false);
+      setEditingMemberId(null);
+      setEditingAvatarUrl(null);
       setNewName('');
       setNewImage(null);
       setNewImageBase64(null);
@@ -207,21 +300,15 @@ export default function MembersScreen() {
 
         {/* Action Buttons */}
         <View style={styles.cardActions}>
-          <TouchableOpacity style={styles.editBtn}>
+          <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal(member)}>
             <MaterialCommunityIcons name="pencil-outline" size={16} color="#475569" style={{marginRight: 6}} />
             <Text style={styles.editBtnText}>แก้ไข</Text>
           </TouchableOpacity>
           
-          {hasAlert ? (
-            <TouchableOpacity style={styles.sosBtn}>
-              <MaterialCommunityIcons name="asterisk" size={24} color="#ffffff" />
-              <Text style={styles.sosText}>SOS</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity style={styles.heartBtn}>
-              <MaterialCommunityIcons name="heart" size={20} color="#059669" />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteMember(member)}>
+            <MaterialCommunityIcons name="trash-can-outline" size={16} color="#dc2626" style={{marginRight: 6}} />
+            <Text style={styles.deleteBtnText}>ลบ</Text>
+          </TouchableOpacity>
         </View>
 
       </View>
@@ -239,7 +326,11 @@ export default function MembersScreen() {
           <Text style={styles.headerTitle}>LOOKLANCARE</Text>
         </View>
         <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/profile')}>
-          <MaterialCommunityIcons name="account-outline" size={24} color="#64748b" />
+          {userProfile?.avatar_url ? (
+            <Image source={{ uri: userProfile.avatar_url }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+          ) : (
+            <MaterialCommunityIcons name="account-outline" size={24} color="#64748b" />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -250,7 +341,7 @@ export default function MembersScreen() {
           <Text style={styles.pageSubtitle}>จัดการและดูแลคนที่คุณรักได้ที่นี่</Text>
         </View>
 
-        <TouchableOpacity style={styles.addMemberBtn} onPress={() => setShowAddModal(true)}>
+        <TouchableOpacity style={styles.addMemberBtn} onPress={openAddModal}>
           <MaterialCommunityIcons name="account-plus-outline" size={20} color="#ffffff" style={{marginRight: 8}} />
           <Text style={styles.addMemberBtnText}>เพิ่มสมาชิกใหม่ (AI Tracking)</Text>
         </TouchableOpacity>
@@ -279,7 +370,7 @@ export default function MembersScreen() {
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>เพิ่มสมาชิกใหม่</Text>
+              <Text style={styles.modalTitle}>{editingMemberId ? 'แก้ไขข้อมูลสมาชิก' : 'เพิ่มสมาชิกใหม่'}</Text>
               <TouchableOpacity onPress={() => setShowAddModal(false)}>
                 <MaterialCommunityIcons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
@@ -537,6 +628,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 12,
   },
   editBtn: {
     flex: 1,
@@ -548,42 +640,27 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     borderRadius: 8,
     paddingVertical: 10,
-    marginRight: 12,
   },
   editBtnText: {
     color: '#475569',
     fontSize: 13,
     fontWeight: 'bold',
   },
-  heartBtn: {
-    width: 44,
-    height: 44,
-    backgroundColor: '#dcfce7',
-    borderRadius: 8,
-    justifyContent: 'center',
+  deleteBtn: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef2f2',
     borderWidth: 1,
-    borderColor: '#bbf7d0',
+    borderColor: '#fecaca',
+    borderRadius: 8,
+    paddingVertical: 10,
   },
-  sosBtn: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 56,
-    height: 56,
-    backgroundColor: '#dc2626',
-    borderRadius: 28,
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  sosText: {
-    color: '#ffffff',
-    fontSize: 10,
+  deleteBtnText: {
+    color: '#dc2626',
+    fontSize: 13,
     fontWeight: 'bold',
-    marginTop: -2,
   },
   emptyState: {
     alignItems: 'center',
