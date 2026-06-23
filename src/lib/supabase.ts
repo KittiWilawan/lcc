@@ -6,8 +6,8 @@ if (Platform.OS !== 'web') {
   require('react-native-url-polyfill/auto');
 }
 
-const supabaseUrl = 'https://wpcxqlnprpknxfsbqbeu.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndwY3hxbG5wcnBrbnhmc2JxYmV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NzUxMTcsImV4cCI6MjA5NzI1MTExN30.OK3sXx2xK6bJE_N7Rv7oc6akZzBcO6abSlrtMXAuUDg';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL as string;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string;
 
 const customStorage = {
   getItem: (key: string) => {
