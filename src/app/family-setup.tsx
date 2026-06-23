@@ -1,7 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -12,12 +15,15 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { supabase } from '../lib/supabase';
 
 
 export default function FamilySetupScreen() {
   const router = useRouter();
   const [selectedMode, setSelectedMode] = useState<'create' | 'join'>('join');
   const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>([]);
 
   const handleCodeChange = (text: string, index: number) => {
@@ -38,16 +44,104 @@ export default function FamilySetupScreen() {
     }
   };
 
-  const handleSubmit = () => {
-    if (selectedMode === 'join') {
-      const fullCode = code.join('');
-      console.log('Joining with code:', fullCode);
-      // TODO: Call API to join family
-      router.replace('/home');
-    } else {
-      console.log('Creating new family');
-      // TODO: Call API to create family
-      router.replace('/home');
+  const handleSubmit = async () => {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        Alert.alert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบก่อนทำรายการ');
+        return;
+      }
+
+      if (selectedMode === 'join') {
+        const fullCode = code.join('');
+        if (fullCode.length < 6) {
+          Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกรหัสให้ครบ 6 หลัก');
+          return;
+        }
+
+        // 1. ค้นหาครอบครัวด้วย Code
+        const { data: family, error: findError } = await supabase
+          .from('families')
+          .select('*')
+          .eq('code', fullCode)
+          .single();
+
+        if (findError || !family) {
+          Alert.alert('ไม่พบครอบครัว', 'รหัสที่ระบุไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+          return;
+        }
+
+        // 2. Insert ตัวเองเข้าครอบครัว
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        const meta = session.user.user_metadata;
+        const displayName = profile?.full_name || meta?.full_name || 'สมาชิกใหม่';
+        const avatarUrl = profile?.avatar_url || null;
+
+        const { error: joinError } = await supabase
+          .from('family_members')
+          .insert([{
+            family_id: family.id,
+            user_id: userId,
+            display_name: displayName,
+            role: 'สมาชิก (Member)',
+            avatar_url: avatarUrl
+          }]);
+
+        if (joinError) throw joinError;
+
+        await AsyncStorage.setItem('familyCode', fullCode);
+        await AsyncStorage.setItem('familyId', family.id);
+        Alert.alert('สำเร็จ', 'เข้าร่วมครอบครัวเรียบร้อยแล้ว');
+        router.replace('/home');
+
+      } else {
+        if (!generatedCode) {
+          const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+          // สร้างครอบครัวใหม่
+          const { data: newFamily, error: createError } = await supabase
+            .from('families')
+            .insert([{
+              name: 'ครอบครัวสุขสันต์',
+              code: newCode,
+              created_by: userId
+            }])
+            .select()
+            .single();
+
+          if (createError) throw createError;
+
+          // เพิ่มตัวเองเป็นเจ้าของ
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+          const meta = session.user.user_metadata;
+          const displayName = profile?.full_name || meta?.full_name || 'ผู้สร้าง';
+          const avatarUrl = profile?.avatar_url || null;
+
+          await supabase
+            .from('family_members')
+            .insert([{
+              family_id: newFamily.id,
+              user_id: userId,
+              display_name: displayName,
+              role: 'ผู้ดูแลหลัก (Caregiver)',
+              avatar_url: avatarUrl
+            }]);
+
+          setGeneratedCode(newCode);
+          await AsyncStorage.setItem('familyCode', newCode);
+          await AsyncStorage.setItem('familyId', newFamily.id);
+
+        } else {
+          router.replace('/home');
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('เกิดข้อผิดพลาด', error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,26 +161,40 @@ export default function FamilySetupScreen() {
 
           {/* Option 1: Create Family */}
           <TouchableOpacity
-            style={[styles.optionCard, selectedMode === 'create' && styles.optionCardActive]}
+            style={[styles.optionCard, selectedMode === 'create' && styles.optionCardActive, selectedMode === 'create' && styles.joinCardWrapper]}
             onPress={() => setSelectedMode('create')}
             activeOpacity={0.7}
           >
-            <View style={[styles.iconBox, selectedMode === 'create' ? styles.iconBoxActive : styles.iconBoxInactive]}>
-              <MaterialCommunityIcons
-                name="home-plus-outline"
-                size={28}
-                color={selectedMode === 'create' ? '#ffffff' : '#16a34a'}
-              />
+            <View style={styles.joinHeader}>
+              <View style={[styles.iconBox, selectedMode === 'create' ? styles.iconBoxActive : styles.iconBoxInactive]}>
+                <MaterialCommunityIcons
+                  name="home-plus-outline"
+                  size={28}
+                  color={selectedMode === 'create' ? '#ffffff' : '#16a34a'}
+                />
+              </View>
+              <View style={styles.optionTextContainer}>
+                <Text style={styles.optionTitle}>สร้างครอบครัวใหม่</Text>
+                <Text style={styles.optionSubtitle}>สำหรับผู้ที่ต้องการเริ่มต้นกลุ่มการดูแลใหม่</Text>
+              </View>
+              {selectedMode !== 'create' && (
+                <MaterialCommunityIcons
+                  name="chevron-right"
+                  size={24}
+                  color="#cbd5e1"
+                />
+              )}
             </View>
-            <View style={styles.optionTextContainer}>
-              <Text style={styles.optionTitle}>สร้างครอบครัวใหม่</Text>
-              <Text style={styles.optionSubtitle}>สำหรับผู้ที่ต้องการเริ่มต้นกลุ่มการดูแลใหม่</Text>
-            </View>
-            <MaterialCommunityIcons
-              name="chevron-right"
-              size={24}
-              color="#cbd5e1"
-            />
+
+            {selectedMode === 'create' && generatedCode && (
+              <View style={styles.generatedCodeSection}>
+                <Text style={styles.generatedCodeLabel}>รหัสครอบครัวของคุณ</Text>
+                <View style={styles.generatedCodeContainer}>
+                  <Text style={styles.generatedCodeText}>{generatedCode}</Text>
+                </View>
+                <Text style={styles.generatedCodeNote}>* แชร์รหัส 6 หลักนี้ให้สมาชิกคนอื่นเพื่อเข้าร่วม</Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           {/* Option 2: Join Family */}
@@ -133,10 +241,14 @@ export default function FamilySetupScreen() {
           </TouchableOpacity>
 
           {/* Submit Button */}
-          <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
-            <Text style={styles.submitBtnText}>
-              {selectedMode === 'join' ? 'ยืนยันรหัส' : 'สร้างครอบครัว'}
-            </Text>
+          <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.submitBtnText}>
+                {selectedMode === 'join' ? 'ยืนยันรหัส' : generatedCode ? 'เข้าสู่หน้าหลัก' : 'สร้างครอบครัว'}
+              </Text>
+            )}
           </TouchableOpacity>
 
           {/* Back Button */}
@@ -260,6 +372,36 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0f172a',
     backgroundColor: '#ffffff',
+  },
+  generatedCodeSection: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  generatedCodeLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#065f46',
+    marginBottom: 12,
+  },
+  generatedCodeContainer: {
+    backgroundColor: '#f0fdf4',
+    paddingVertical: 12,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#34d399',
+    marginBottom: 8,
+  },
+  generatedCodeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#065f46',
+    letterSpacing: 4,
+  },
+  generatedCodeNote: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
   },
   submitBtn: {
     backgroundColor: '#065f46',
