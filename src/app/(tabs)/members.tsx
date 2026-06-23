@@ -8,12 +8,18 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   Image,
-  Alert
+  Alert,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
 
 interface FamilyMember {
   id: string;
@@ -31,9 +37,101 @@ export default function MembersScreen() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Add Member Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('สมาชิก (Member)');
+  const [newImage, setNewImage] = useState<string | null>(null);
+  const [newImageBase64, setNewImageBase64] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     loadMembers();
   }, []);
+
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+      base64: true, // Request base64
+    });
+
+    if (!result.canceled) {
+      setNewImage(result.assets[0].uri);
+      // Strip data uri prefix if present (especially on web)
+      const base64 = result.assets[0].base64 || '';
+      const cleanBase64 = base64.replace(/^data:image\/\w+;base64,/, '');
+      setNewImageBase64(cleanBase64 || null);
+    }
+  };
+
+  const handleSaveMember = async () => {
+    if (!newName.trim() || !newImage) {
+      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อและเลือกรูปภาพใบหน้า (จำเป็นสำหรับ AI)');
+      return;
+    }
+    setSaving(true);
+    try {
+      const familyId = await AsyncStorage.getItem('familyId');
+      
+      if (!familyId) {
+        Alert.alert('ไม่พบครอบครัว', 'คุณยังไม่ได้สร้างหรือเข้าร่วมครอบครัว กรุณาไปหน้าตั้งค่าครอบครัวก่อนครับ');
+        setSaving(false);
+        return;
+      }
+
+      let avatarUrl = null;
+
+      if (newImage) {
+        const fileName = `avatar-${Date.now()}.jpg`;
+
+        // ใช้วิธีดึง Blob จาก URI แทน Base64 ซึ่งชัวร์กว่าทั้งบน Web และ Mobile
+        const response = await fetch(newImage);
+        const blob = await response.blob();
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, blob, {
+             contentType: 'image/jpeg',
+             upsert: false,
+          });
+
+        if (uploadError) {
+          console.error("Upload error details:", uploadError);
+          throw new Error('อัปโหลดรูปล้มเหลว: ' + uploadError.message);
+        }
+
+        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+        avatarUrl = publicUrl;
+      }
+
+      const { error: insertError } = await supabase.from('family_members').insert([{
+        family_id: familyId,
+        display_name: newName,
+        role: newRole,
+        avatar_url: avatarUrl,
+        device_registered: false,
+        is_tracked: false
+      }]);
+
+      if (insertError) throw new Error('ไม่สามารถเพิ่มข้อมูลสมาชิกได้: ' + insertError.message);
+
+      Alert.alert('สำเร็จ', 'เพิ่มสมาชิกเรียบร้อยแล้ว');
+      setShowAddModal(false);
+      setNewName('');
+      setNewImage(null);
+      setNewImageBase64(null);
+      setNewRole('สมาชิก (Member)');
+      loadMembers();
+    } catch (error: any) {
+      Alert.alert('เกิดข้อผิดพลาด', error.message);
+      console.log('Save Member Error:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const loadMembers = async () => {
     try {
@@ -152,9 +250,9 @@ export default function MembersScreen() {
           <Text style={styles.pageSubtitle}>จัดการและดูแลคนที่คุณรักได้ที่นี่</Text>
         </View>
 
-        <TouchableOpacity style={styles.addMemberBtn}>
+        <TouchableOpacity style={styles.addMemberBtn} onPress={() => setShowAddModal(true)}>
           <MaterialCommunityIcons name="account-plus-outline" size={20} color="#ffffff" style={{marginRight: 8}} />
-          <Text style={styles.addMemberBtnText}>เพิ่มสมาชิกใหม่</Text>
+          <Text style={styles.addMemberBtnText}>เพิ่มสมาชิกใหม่ (AI Tracking)</Text>
         </TouchableOpacity>
 
         {loading ? (
@@ -175,6 +273,68 @@ export default function MembersScreen() {
         )}
 
       </ScrollView>
+
+      {/* Add Member Modal */}
+      <Modal visible={showAddModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>เพิ่มสมาชิกใหม่</Text>
+              <TouchableOpacity onPress={() => setShowAddModal(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              {/* Image Picker */}
+              <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
+                {newImage ? (
+                  <Image source={{ uri: newImage }} style={styles.pickedImage} />
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <MaterialCommunityIcons name="camera-plus" size={32} color="#059669" />
+                    <Text style={styles.imagePickerText}>ถ่าย/อัปโหลดใบหน้า</Text>
+                    <Text style={styles.imagePickerSubtext}>(จำเป็นสำหรับ AI Tracking)</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>ชื่อ - นามสกุล</Text>
+                <TextInput 
+                  style={styles.input} 
+                  value={newName}
+                  onChangeText={setNewName}
+                  placeholder="เช่น คุณตาต้อย"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>บทบาท</Text>
+                <View style={styles.roleContainer}>
+                  {['คุณตา (Grandpa)', 'คุณยาย (Grandma)', 'สมาชิก (Member)'].map(role => (
+                    <TouchableOpacity 
+                      key={role}
+                      style={[styles.roleChip, newRole === role && styles.roleChipActive]}
+                      onPress={() => setNewRole(role)}
+                    >
+                      <Text style={[styles.roleChipText, newRole === role && styles.roleChipTextActive]}>{role}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSaveMember} disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.saveBtnText}>บันทึกข้อมูล</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -445,5 +605,121 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 4,
     textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  modalBody: {
+    marginTop: 8,
+  },
+  imagePickerBtn: {
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  imagePlaceholder: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#ecfdf5',
+    borderWidth: 2,
+    borderColor: '#34d399',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  pickedImage: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 2,
+    borderColor: '#059669',
+  },
+  imagePickerText: {
+    color: '#059669',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  imagePickerSubtext: {
+    color: '#10b981',
+    fontSize: 10,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: '#0f172a',
+    backgroundColor: '#f8fafc',
+  },
+  roleContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  roleChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  roleChipActive: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#34d399',
+  },
+  roleChipText: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  roleChipTextActive: {
+    color: '#059669',
+    fontWeight: 'bold',
+  },
+  saveBtn: {
+    backgroundColor: '#059669',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  saveBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
   }
 });

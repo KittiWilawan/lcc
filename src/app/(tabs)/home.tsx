@@ -8,20 +8,67 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  Switch,
+  ActivityIndicator
 } from 'react-native';
+import { supabase } from '../../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect } from 'react';
 
 export default function DashboardScreen() {
   const router = useRouter();
 
-  // Mock events array. In real app, this would come from an API/Database.
   const [events, setEvents] = useState([
     { id: 1, time: '10:30', title: 'ตรวจพบการล้ม (ยืนยันแล้ว)', subtitle: 'เจ้าหน้าที่รับทราบและติดต่อแล้ว', isAlert: true },
     { id: 2, time: '08:15', title: 'แจ้งเตือนพลาด (False Alarm)', subtitle: 'ระบบตรวจพบการเคลื่อนไหวรวดเร็ว', isAlert: false }
   ]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
 
-  // ฟังก์ชันสลับการโชว์/ซ่อนประวัติ (จำลอง)
-  // หากไม่มีเหตุการณ์ events จะเป็น array ว่าง และกล่องประวัติจะไม่โชว์
+  useEffect(() => {
+    loadFamilyMembers();
+  }, []);
+
+  const loadFamilyMembers = async () => {
+    try {
+      setLoadingMembers(true);
+      const familyId = await AsyncStorage.getItem('familyId');
+      if (!familyId) return;
+
+      const { data, error } = await supabase
+        .from('family_members')
+        .select('*')
+        .eq('family_id', familyId)
+        .order('created_at', { ascending: true });
+
+      if (!error && data) {
+        setMembers(data);
+      }
+    } catch (e) {
+      console.log('Error loading members:', e);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
+  const toggleTracking = async (id: string, currentVal: boolean) => {
+    // Optimistic UI Update
+    setMembers(prev => prev.map(m => m.id === id ? { ...m, is_tracked: !currentVal } : m));
+    
+    // DB Update
+    const { error } = await supabase
+      .from('family_members')
+      .update({ is_tracked: !currentVal })
+      .eq('id', id);
+      
+    if (error) {
+      // Revert if error
+      setMembers(prev => prev.map(m => m.id === id ? { ...m, is_tracked: currentVal } : m));
+      console.error(error);
+    }
+  };
+
   const clearEvents = () => setEvents([]);
   const addEvent = () => setEvents([
     { id: Date.now(), time: '11:00', title: 'ตรวจพบการล้ม (จำลอง)', subtitle: 'กำลังแจ้งเตือนสมาชิกในครอบครัว', isAlert: true },
@@ -83,7 +130,7 @@ export default function DashboardScreen() {
                 <MaterialCommunityIcons name="account-group" size={24} color="#0f766e" />
               </View>
               <View>
-                <Text style={styles.aiStatusTitle}>กำลังเฝ้าระวัง 2 คน</Text>
+                <Text style={styles.aiStatusTitle}>กำลังเฝ้าระวัง {members.filter(m => m.is_tracked).length} คน</Text>
                 <Text style={styles.aiStatusSubtitle}>ระบบ AI ทำงานปกติ</Text>
               </View>
             </View>
@@ -97,37 +144,48 @@ export default function DashboardScreen() {
         {/* Family Members Section */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <MaterialCommunityIcons name="source-branch" size={20} color="#059669" />
-            <Text style={styles.cardTitle}>สมาชิกในครอบครัว</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <MaterialCommunityIcons name="face-recognition" size={20} color="#059669" />
+              <Text style={styles.cardTitle}>สมาชิกในบ้าน & AI Tracking</Text>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/members')}>
+              <Text style={{color: '#059669', fontSize: 12, fontWeight: 'bold'}}>จัดการ</Text>
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.memberItem}>
-            <View style={styles.memberAvatar}>
-              <MaterialCommunityIcons name="face-man" size={24} color="#64748b" />
-            </View>
-            <View style={styles.memberInfo}>
-              <Text style={styles.memberName}>คุณตา</Text>
-              <Text style={styles.memberRoom}>ห้องนั่งเล่น</Text>
-            </View>
-            <View style={styles.statusBadgeSafe}>
-              <View style={styles.statusDotSafe} />
-              <Text style={styles.statusTextSafe}>ปกติ (Safe)</Text>
-            </View>
-          </View>
-
-          <View style={styles.memberItem}>
-            <View style={styles.memberAvatar}>
-              <MaterialCommunityIcons name="face-woman" size={24} color="#64748b" />
-            </View>
-            <View style={styles.memberInfo}>
-              <Text style={styles.memberName}>คุณยาย</Text>
-              <Text style={styles.memberRoom}>ห้องนั่งเล่น</Text>
-            </View>
-            <View style={styles.statusBadgeSafe}>
-              <View style={styles.statusDotSafe} />
-              <Text style={styles.statusTextSafe}>ปกติ (Safe)</Text>
-            </View>
-          </View>
+          {loadingMembers ? (
+             <ActivityIndicator color="#059669" style={{ marginVertical: 20 }} />
+          ) : members.length === 0 ? (
+             <Text style={{color: '#94a3b8', fontSize: 13, textAlign: 'center', marginVertical: 10}}>ยังไม่มีสมาชิกในบ้าน</Text>
+          ) : (
+            members.map(member => (
+              <View key={member.id} style={styles.memberItem}>
+                <View style={styles.memberAvatar}>
+                  {member.avatar_url ? (
+                    <Image source={{uri: member.avatar_url}} style={{width: 44, height: 44, borderRadius: 22}} />
+                  ) : (
+                    <MaterialCommunityIcons name="face-man-profile" size={24} color="#64748b" />
+                  )}
+                </View>
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberName}>{member.display_name}</Text>
+                  <Text style={styles.memberRoom}>{member.role}</Text>
+                </View>
+                <View style={{alignItems: 'flex-end'}}>
+                  <Text style={{fontSize: 10, color: member.is_tracked ? '#059669' : '#94a3b8', marginBottom: 4, fontWeight: 'bold'}}>
+                    {member.is_tracked ? 'AI กำลังจับตาดู' : 'ปิดการจับตาดู'}
+                  </Text>
+                  <Switch 
+                    value={member.is_tracked || false}
+                    onValueChange={() => toggleTracking(member.id, member.is_tracked)}
+                    trackColor={{ false: '#e2e8f0', true: '#34d399' }}
+                    thumbColor={member.is_tracked ? '#ffffff' : '#f8fafc'}
+                    style={{transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }]}}
+                  />
+                </View>
+              </View>
+            ))
+          )}
         </View>
 
         {/* History Section (Conditional Rendering) */}
@@ -354,6 +412,7 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   cardTitle: {

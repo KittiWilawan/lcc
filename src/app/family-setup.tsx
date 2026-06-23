@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-
 export default function FamilySetupScreen() {
   const router = useRouter();
   const [selectedMode, setSelectedMode] = useState<'create' | 'join'>('join');
