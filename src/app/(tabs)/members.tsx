@@ -1,25 +1,24 @@
-import { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  SafeAreaView, 
-  TouchableOpacity, 
-  ActivityIndicator,
-  Image,
-  Alert,
-  Modal,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform
-} from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { decode } from 'base64-arraybuffer';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { supabase } from '../../lib/supabase';
 
 interface FamilyMember {
   id: string;
@@ -149,7 +148,7 @@ export default function MembersScreen() {
     setSaving(true);
     try {
       const familyId = await AsyncStorage.getItem('familyId');
-      
+
       if (!familyId) {
         Alert.alert('ไม่พบครอบครัว', 'คุณยังไม่ได้สร้างหรือเข้าร่วมครอบครัว กรุณาไปหน้าตั้งค่าครอบครัวก่อนครับ');
         setSaving(false);
@@ -169,8 +168,8 @@ export default function MembersScreen() {
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('avatars')
           .upload(fileName, blob, {
-             contentType: 'image/jpeg',
-             upsert: false,
+            contentType: 'image/jpeg',
+            upsert: false,
           });
 
         if (uploadError) {
@@ -230,7 +229,7 @@ export default function MembersScreen() {
     try {
       setLoading(true);
       const familyId = await AsyncStorage.getItem('familyId');
-      
+
       if (!familyId) {
         setLoading(false);
         return;
@@ -240,10 +239,10 @@ export default function MembersScreen() {
         .from('family_members')
         .select('*')
         .eq('family_id', familyId)
-        .order('created_at', { ascending: true }); 
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
-      
+
       if (data) {
         setMembers(data);
       }
@@ -259,54 +258,38 @@ export default function MembersScreen() {
 
     return (
       <View key={member.id} style={[styles.memberCard, hasAlert && styles.memberCardAlert]}>
-        
+
         {/* Top Info */}
         <View style={styles.cardHeader}>
           <View style={styles.avatarContainer}>
             {member.avatar_url ? (
-               <Image source={{ uri: member.avatar_url }} style={styles.avatar} />
+              <Image source={{ uri: member.avatar_url }} style={styles.avatar} />
             ) : (
-               <View style={styles.avatarPlaceholder}>
-                 <MaterialCommunityIcons name="account" size={32} color="#94a3b8" />
-               </View>
-            )}
-            {hasAlert && (
-              <View style={styles.alertBadge}>
-                <Text style={styles.alertBadgeText}>!</Text>
+              <View style={styles.avatarPlaceholder}>
+                <MaterialCommunityIcons name="account" size={32} color="#94a3b8" />
               </View>
             )}
           </View>
-          
+
           <View style={styles.memberInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.memberName}>{member.display_name}</Text>
               <View style={[styles.statusDot, hasAlert ? styles.statusDotRed : styles.statusDotGreen]} />
             </View>
             <Text style={[styles.memberRole, hasAlert && styles.memberRoleAlert]}>{member.role}</Text>
-            
-            {hasAlert ? (
-              <View style={styles.locationRow}>
-                <MaterialCommunityIcons name="clock-alert-outline" size={14} color="#dc2626" />
-                <Text style={styles.alertText}>ยังไม่ลงทะเบียนอุปกรณ์</Text>
-              </View>
-            ) : (
-              <View style={styles.locationRow}>
-                <MaterialCommunityIcons name="map-marker-outline" size={14} color="#64748b" />
-                <Text style={styles.locationText}>{member.location || 'ห้องรับแขก'}</Text>
-              </View>
-            )}
+
           </View>
         </View>
 
         {/* Action Buttons */}
         <View style={styles.cardActions}>
           <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal(member)}>
-            <MaterialCommunityIcons name="pencil-outline" size={16} color="#475569" style={{marginRight: 6}} />
+            <MaterialCommunityIcons name="pencil-outline" size={16} color="#475569" style={{ marginRight: 6 }} />
             <Text style={styles.editBtnText}>แก้ไข</Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteMember(member)}>
-            <MaterialCommunityIcons name="trash-can-outline" size={16} color="#dc2626" style={{marginRight: 6}} />
+            <MaterialCommunityIcons name="trash-can-outline" size={16} color="#dc2626" style={{ marginRight: 6 }} />
             <Text style={styles.deleteBtnText}>ลบ</Text>
           </TouchableOpacity>
         </View>
@@ -335,14 +318,14 @@ export default function MembersScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         <View style={styles.pageHeader}>
           <Text style={styles.pageTitle}>สมาชิกในครอบครัว</Text>
           <Text style={styles.pageSubtitle}>จัดการและดูแลคนที่คุณรักได้ที่นี่</Text>
         </View>
 
         <TouchableOpacity style={styles.addMemberBtn} onPress={openAddModal}>
-          <MaterialCommunityIcons name="account-plus-outline" size={20} color="#ffffff" style={{marginRight: 8}} />
+          <MaterialCommunityIcons name="account-plus-outline" size={20} color="#ffffff" style={{ marginRight: 8 }} />
           <Text style={styles.addMemberBtnText}>เพิ่มสมาชิกใหม่ (AI Tracking)</Text>
         </TouchableOpacity>
 
@@ -375,7 +358,7 @@ export default function MembersScreen() {
                 <MaterialCommunityIcons name="close" size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.modalBody}>
               {/* Image Picker */}
               <TouchableOpacity style={styles.imagePickerBtn} onPress={pickImage}>
@@ -392,8 +375,8 @@ export default function MembersScreen() {
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>ชื่อ - นามสกุล</Text>
-                <TextInput 
-                  style={styles.input} 
+                <TextInput
+                  style={styles.input}
                   value={newName}
                   onChangeText={setNewName}
                   placeholder="เช่น คุณตาต้อย"
@@ -404,7 +387,7 @@ export default function MembersScreen() {
                 <Text style={styles.label}>บทบาท</Text>
                 <View style={styles.roleContainer}>
                   {['คุณตา (Grandpa)', 'คุณยาย (Grandma)', 'สมาชิก (Member)'].map(role => (
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       key={role}
                       style={[styles.roleChip, newRole === role && styles.roleChipActive]}
                       onPress={() => setNewRole(role)}
@@ -526,7 +509,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   memberCardAlert: {
-    borderColor: '#fca5a5',
+    borderColor: '#059669',
     backgroundColor: '#fffdfd',
   },
   cardHeader: {
