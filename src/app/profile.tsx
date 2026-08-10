@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 
 interface EmergencyContact {
@@ -33,6 +34,7 @@ interface EmergencyContact {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // State 
   const [loading, setLoading] = useState(true);
@@ -54,10 +56,6 @@ export default function ProfileScreen() {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactPrimary, setContactPrimary] = useState(false);
-
-  useEffect(() => {
-    loadProfile();
-  }, []);
 
   const loadProfile = async () => {
     try {
@@ -113,6 +111,11 @@ export default function ProfileScreen() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadProfile();
+  }, []);
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -259,9 +262,9 @@ export default function ProfileScreen() {
   const displayAvatarUri = newAvatarImage || avatarUrl;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14) }]}>
         <View style={styles.headerLeft}>
           <View style={styles.logoPlaceholder}>
             <MaterialCommunityIcons name="shield-account" size={20} color="#059669" />
@@ -550,7 +553,7 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-    </SafeAreaView>
+    </View>
   );
 }
 

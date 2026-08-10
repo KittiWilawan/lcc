@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 
 interface FamilyMember {
@@ -33,6 +34,7 @@ interface FamilyMember {
 
 export default function MembersScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -46,11 +48,6 @@ export default function MembersScreen() {
   const [newImage, setNewImage] = useState<string | null>(null);
   const [newImageBase64, setNewImageBase64] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    loadMembers();
-    loadUserProfile();
-  }, []);
 
   const loadUserProfile = async () => {
     try {
@@ -68,6 +65,40 @@ export default function MembersScreen() {
       console.log('Error loading user profile:', e);
     }
   };
+
+  const loadMembers = async () => {
+    try {
+      setLoading(true);
+      const familyId = await AsyncStorage.getItem('familyId');
+
+      if (!familyId) {
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('family_members')
+        .select('*')
+        .eq('family_id', familyId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        setMembers(data);
+      }
+    } catch (error: any) {
+      console.log('Error fetching members:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadMembers();
+    void loadUserProfile();
+  }, []);
 
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -225,34 +256,6 @@ export default function MembersScreen() {
     }
   };
 
-  const loadMembers = async () => {
-    try {
-      setLoading(true);
-      const familyId = await AsyncStorage.getItem('familyId');
-
-      if (!familyId) {
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('family_members')
-        .select('*')
-        .eq('family_id', familyId)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      if (data) {
-        setMembers(data);
-      }
-    } catch (error: any) {
-      console.log('Error fetching members:', error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const renderMemberCard = (member: FamilyMember) => {
     const hasAlert = !member.device_registered;
 
@@ -299,9 +302,9 @@ export default function MembersScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* Top Header matching Dashboard/Profile */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14) }]}>
         <View style={styles.headerLeft}>
           <View style={styles.logoPlaceholder}>
             <MaterialCommunityIcons name="shield-account" size={20} color="#059669" />
@@ -409,7 +412,7 @@ export default function MembersScreen() {
           </KeyboardAvoidingView>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

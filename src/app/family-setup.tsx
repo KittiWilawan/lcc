@@ -15,10 +15,12 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 
 export default function FamilySetupScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [selectedMode, setSelectedMode] = useState<'create' | 'join'>('join');
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
@@ -145,7 +147,7 @@ export default function FamilySetupScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: Math.max(insets.top, 14) }]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -262,7 +264,7 @@ export default function FamilySetupScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

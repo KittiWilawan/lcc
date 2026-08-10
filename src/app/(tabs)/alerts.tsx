@@ -11,6 +11,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,6 +28,7 @@ interface AlertItem {
 }
 
 export default function AlertsScreen() {
+  const insets = useSafeAreaInsets();
   const [alerts] = useState<AlertItem[]>([
     {
       id: '1',
@@ -62,10 +64,6 @@ export default function AlertsScreen() {
 
   const [caregiver, setCaregiver] = useState<any>(null);
 
-  useEffect(() => {
-    loadCaregiver();
-  }, []);
-
   const loadCaregiver = async () => {
     try {
       const familyId = await AsyncStorage.getItem('familyId');
@@ -86,6 +84,11 @@ export default function AlertsScreen() {
       console.log('Error loading caregiver:', e);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCaregiver();
+  }, []);
 
   const handleViewEvidence = (alert: AlertItem) => {
     Alert.alert(
@@ -130,9 +133,9 @@ export default function AlertsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       {/* Red SOS Header */}
-      <View style={styles.sosHeader}>
+      <View style={[styles.sosHeader, { paddingTop: Math.max(insets.top + 10, 16) }]}>
         <View style={styles.sosHeaderContent}>
           <View style={styles.sosIconRow}>
             <View style={styles.sosIconCircle}>
@@ -234,9 +237,8 @@ export default function AlertsScreen() {
             )}
           </View>
         </View>
-
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -251,7 +253,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#dc2626',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 8 : 16,
   },
   sosHeaderContent: {
     flexDirection: 'row',

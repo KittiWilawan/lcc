@@ -117,7 +117,7 @@ export default function LoginScreen() {
           <View style={styles.inputWrapper}>
             <View style={styles.passwordLabelRow}>
               <Text style={styles.label}>รหัสผ่าน</Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push('/forgot-password')}>
                 <Text style={styles.forgotPassword}>ลืมรหัสผ่าน?</Text>
               </TouchableOpacity>
             </View>
