@@ -4,12 +4,14 @@ import { Image } from 'expo-image';
 import { CameraView } from 'expo-camera';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AICameraOverlay from '../components/AICameraOverlay';
+import { FullScreenCameraModal } from '../components/FullScreenCameraModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_GAP = 12;
-const CARD_WIDTH = (SCREEN_WIDTH - 40 - CARD_GAP) / 2;
+const CARD_GAP = 16;
+const CARD_WIDTH = SCREEN_WIDTH - 40;
 
 interface CameraItem {
   id: string;
@@ -22,6 +24,7 @@ export default function AllCamerasScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [cameras, setCameras] = useState<CameraItem[]>([]);
+  const [fullscreenCam, setFullscreenCam] = useState<CameraItem | null>(null);
 
   const loadCameras = useCallback(async () => {
     try {
@@ -41,10 +44,23 @@ export default function AllCamerasScreen() {
     }, [loadCameras])
   );
 
-  const removeCamera = async (id: string) => {
-    const updated = cameras.filter(c => c.id !== id);
-    setCameras(updated);
-    await AsyncStorage.setItem('@family_cameras', JSON.stringify(updated));
+  const removeCamera = (id: string, name: string) => {
+    Alert.alert(
+      'ยืนยันการลบกล้อง',
+      `คุณแน่ใจหรือไม่ว่าต้องการลบกล้อง "${name}" ออกจากระบบ?`,
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ลบกล้อง',
+          style: 'destructive',
+          onPress: async () => {
+            const updated = cameras.filter(c => c.id !== id);
+            setCameras(updated);
+            await AsyncStorage.setItem('@family_cameras', JSON.stringify(updated));
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -88,22 +104,31 @@ export default function AllCamerasScreen() {
                     <CameraView style={styles.gridVideo} facing="back" />
                   )}
 
+                  {/* AI Vision Person & Fall Overlay */}
+                  <AICameraOverlay
+                    personName={cam.name}
+                    initialPosture="standing"
+                    compact={false}
+                  />
+
                   {/* Live badge */}
                   <View style={styles.liveBadge}>
                     <View style={styles.liveDot} />
                     <Text style={styles.liveText}>LIVE</Text>
                   </View>
 
-                  {/* Delete button */}
-                  <TouchableOpacity
-                    style={styles.deleteBtn}
-                    onPress={() => removeCamera(cam.id)}
-                  >
-                    <MaterialCommunityIcons name="trash-can-outline" size={16} color="#ffffff" />
-                  </TouchableOpacity>
+                  {/* Bottom Right Control: Fullscreen Expand Button */}
+                  <View style={styles.bottomRightControls}>
+                    <TouchableOpacity
+                      style={styles.expandBtn}
+                      onPress={() => setFullscreenCam(cam)}
+                    >
+                      <MaterialCommunityIcons name="fullscreen" size={18} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                {/* Camera info */}
+                {/* Camera Info Footer Bar */}
                 <View style={styles.gridCardInfo}>
                   <View style={styles.gridCardInfoLeft}>
                     <MaterialCommunityIcons
@@ -113,6 +138,7 @@ export default function AllCamerasScreen() {
                     />
                     <Text style={styles.gridCardName} numberOfLines={1}>{cam.name}</Text>
                   </View>
+
                   <View style={[styles.typeBadge, cam.type === 'device' && styles.typeBadgeDevice]}>
                     <Text style={[styles.typeBadgeText, cam.type === 'device' && styles.typeBadgeTextDevice]}>
                       {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
@@ -124,6 +150,13 @@ export default function AllCamerasScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Fullscreen YouTube-Style Camera Viewer */}
+      <FullScreenCameraModal
+        visible={!!fullscreenCam}
+        camera={fullscreenCam}
+        onClose={() => setFullscreenCam(null)}
+      />
     </View>
   );
 }
@@ -219,7 +252,7 @@ const styles = StyleSheet.create({
   },
   gridCameraView: {
     width: '100%',
-    aspectRatio: 4 / 3,
+    aspectRatio: 16 / 9,
     backgroundColor: '#0f172a',
     position: 'relative',
   },
@@ -251,14 +284,38 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  deleteBtn: {
+  bottomRightControls: {
     position: 'absolute',
-    top: 8,
+    bottom: 8,
     right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    zIndex: 20,
+  },
+  expandBtn: {
     width: 28,
     height: 28,
     borderRadius: 8,
-    backgroundColor: 'rgba(239,68,68,0.7)',
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  deleteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239,68,68,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoDeleteBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: '#fee2e2',
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -14,12 +14,15 @@ import {
   Animated,
   Dimensions,
   Modal,
-  TextInput
+  TextInput,
+  Alert
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AICameraOverlay from '../../components/AICameraOverlay';
+import { FullScreenCameraModal } from '../../components/FullScreenCameraModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -36,6 +39,7 @@ export default function DashboardScreen() {
   
   // Camera State
   const [cameras, setCameras] = useState<CameraItem[]>([]);
+  const [fullscreenCam, setFullscreenCam] = useState<CameraItem | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [showAddCameraModal, setShowAddCameraModal] = useState(false);
   const [newCamName, setNewCamName] = useState('');
@@ -175,6 +179,25 @@ export default function DashboardScreen() {
       setMembers(prev => prev.map(m => m.id === id ? { ...m, is_tracked: currentVal } : m));
       console.error(error);
     }
+  };
+
+  const confirmDeleteCamera = (camId: string, camName: string) => {
+    Alert.alert(
+      'ยืนยันการลบกล้อง',
+      `คุณแน่ใจหรือไม่ว่าต้องการลบกล้อง "${camName}" ออก?`,
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ลบกล้อง',
+          style: 'destructive',
+          onPress: async () => {
+            const updated = cameras.filter(c => c.id !== camId);
+            setCameras(updated);
+            await AsyncStorage.setItem('@family_cameras', JSON.stringify(updated));
+          },
+        },
+      ]
+    );
   };
 
   const clearEvents = () => setEvents([]);
@@ -323,6 +346,13 @@ export default function DashboardScreen() {
                     <CameraView style={styles.videoPlayer} facing="back" />
                   )}
 
+                  {/* AI Vision Person & Fall Overlay */}
+                  <AICameraOverlay
+                    personName="คุณยายสมศรี"
+                    initialPosture="standing"
+                    onFallDetected={() => { void addEvent(); }}
+                  />
+
                   <View style={styles.liveBadge}>
                     <Animated.View style={[styles.liveDot, { opacity: glowAnim }]} />
                     <Text style={styles.liveText}>LIVE</Text>
@@ -337,18 +367,28 @@ export default function DashboardScreen() {
                     <Text style={styles.roomLabelText}>{cam.name}</Text>
                   </View>
 
-                  <TouchableOpacity 
-                    style={[styles.cameraOverlayControls, { right: 12, top: 12, bottom: undefined }]}
-                    onPress={async () => {
-                       const updated = cameras.filter(c => c.id !== cam.id);
-                       setCameras(updated);
-                       await AsyncStorage.setItem('@family_cameras', JSON.stringify(updated));
-                    }}
-                  >
-                    <View style={styles.cameraControlBtn}>
-                      <MaterialCommunityIcons name="trash-can-outline" size={18} color="#ffffff" />
-                    </View>
-                  </TouchableOpacity>
+                  {/* Bottom Right: Fullscreen Expand Only */}
+                  <View style={[styles.cameraOverlayControls, { right: 8, bottom: 8, top: undefined }]}>
+                    <TouchableOpacity
+                      style={styles.cameraControlBtn}
+                      onPress={() => setFullscreenCam(cam)}
+                    >
+                      <MaterialCommunityIcons name="fullscreen" size={18} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Camera Info Footer - Clean & Sleek */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#ffffff', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#059669" />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{cam.name}</Text>
+                  </View>
+                  <View style={{ backgroundColor: cam.type === 'device' ? '#fef3c7' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '600', color: cam.type === 'device' ? '#92400e' : '#64748b' }}>
+                      {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
+                    </Text>
+                  </View>
                 </View>
               </View>
             ))}
@@ -523,6 +563,13 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Fullscreen YouTube-Style Camera Viewer */}
+      <FullScreenCameraModal
+        visible={!!fullscreenCam}
+        camera={fullscreenCam}
+        onClose={() => setFullscreenCam(null)}
+      />
     </View>
   );
 }
