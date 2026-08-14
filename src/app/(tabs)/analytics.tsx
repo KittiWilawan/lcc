@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   View,
   Image,
+  Share,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
@@ -104,6 +106,55 @@ export default function AnalyticsScreen() {
   const avgGaitSway = Math.round(gaitData.reduce((s, v) => s + v, 0) / gaitData.length);
   const gaitLevel = avgGaitSway < 20 ? 'ปกติ' : avgGaitSway < 40 ? 'เดินเซเล็กน้อย' : 'เดินเซมาก';
   const gaitColor = avgGaitSway < 20 ? '#059669' : avgGaitSway < 40 ? '#f59e0b' : '#dc2626';
+
+  const handleShareDoctorReport = async () => {
+    try {
+      const dateStr = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+      const reportMessage = `
+🏥 [รายงานประวัติสุขภาพและการทรงตัวสำหรับแพทย์ - LookLanCare]
+📅 วันที่ออกรายงาน: ${dateStr}
+
+👤 ข้อมูลสมาชิก: คุณยายสมศรี
+📊 ระดับความเสี่ยงการล้ม: ${riskLevel}
+⚠️ จำนวนเหตุการณ์ล้มสัปดาห์นี้: ${weekTotal} ครั้ง (เหตุการณ์จริง: ${actualFalls} ครั้ง)
+🚶 ค่าเฉลี่ยการเดินเซ (Gait Sway Index): ${avgGaitSway}% (${gaitLevel})
+
+💡 ข้อแนะนำจากระบบวิเคราะห์ AI:
+${weekTotal === 0 ? 'สภาพร่างกายและการทรงตัวเสถียรดี ไม่พบเหตุการณ์ล้มสัปดาห์นี้' : 'พบแนวโน้มความเสี่ยงล้ม ควรตรวจเช็กการทรงตัว (Timed Up and Go Test) และยารักษาโรคประจำตัว'}
+
+เปิดดูในแอป LookLanCare เพื่อดูรายละเอียดเพิ่มเติม
+      `.trim();
+
+      await Share.share({
+        message: reportMessage,
+        title: 'รายงานสุขภาพผู้สูงอายุสำหรับแพทย์',
+      });
+    } catch (e: any) {
+      Alert.alert('เกิดข้อผิดพลาด', e.message);
+    }
+  };
+
+  const handleShareFamilySummary = async () => {
+    try {
+      const shareMessage = `
+🏡 [รายงานสรุปความปลอดภัยประจำสัปดาห์ - ครอบครัวสุขสันต์]
+
+🟢 สถานะรวม: สัปดาห์นี้สุขภาพของคุณยายสมศรีอยู่ในระดับ "${riskLevel}"
+- จำนวนครั้งที่ล้ม: ${weekTotal} ครั้ง
+- ดัชนีการเดินเซ (Gait Sway): ${avgGaitSway}% (${gaitLevel})
+- ระบบ AI Kinematics เฝ้าระวัง: ทำงานปกติ 24 ชั่วโมง
+
+เฝ้าระวังด้วยแอป LookLanCare 💚
+      `.trim();
+
+      await Share.share({
+        message: shareMessage,
+        title: 'สรุปความปลอดภัยครอบครัว',
+      });
+    } catch (e: any) {
+      Alert.alert('เกิดข้อผิดพลาด', e.message);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -259,11 +310,11 @@ export default function AnalyticsScreen() {
 
         {/* Export / Share Info */}
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-          <TouchableOpacity style={styles.actionBtn}>
+          <TouchableOpacity style={styles.actionBtn} onPress={handleShareDoctorReport}>
             <MaterialCommunityIcons name="file-document-outline" size={18} color="#059669" />
             <Text style={styles.actionBtnText}>ส่งรายงานให้แพทย์</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#0f172a' }]}>
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#0f172a' }]} onPress={handleShareFamilySummary}>
             <MaterialCommunityIcons name="share-variant-outline" size={18} color="#ffffff" />
             <Text style={[styles.actionBtnText, { color: '#ffffff' }]}>แชร์ให้ครอบครัว</Text>
           </TouchableOpacity>

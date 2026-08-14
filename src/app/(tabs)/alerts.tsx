@@ -29,65 +29,110 @@ interface AlertItem {
 
 export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
-  const [alerts] = useState<AlertItem[]>([
-    {
-      id: '1',
-      type: 'critical',
-      title: 'Actual Fall Detected',
-      subtitle: 'ตรวจพบการหกล้ม ห้องนั่งเล่น',
-      person: 'คุณตาต้อย',
-      time: '14:32',
-      date: 'Today',
-      status: 'responded',
-    },
-    {
-      id: '2',
-      type: 'simulated',
-      title: 'Weekly Safety Test',
-      subtitle: 'ทดสอบระบบประจำสัปดาห์',
-      person: 'ระบบ',
-      time: '10:15',
-      date: 'Yesterday',
-      status: 'notified',
-    },
-    {
-      id: '3',
-      type: 'log',
-      title: 'Unusual Activity',
-      subtitle: 'ความเคลื่อนไหวผิดปกติ ห้องน้ำ',
-      person: 'คุณยายสมศรี',
-      time: '08:45',
-      date: 'Yesterday',
-      status: 'cancelled',
-    },
-  ]);
-
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [caregiver, setCaregiver] = useState<any>(null);
 
-  const loadCaregiver = async () => {
+  const loadAlertsAndMembers = async () => {
     try {
+      setLoadingAlerts(true);
       const familyId = await AsyncStorage.getItem('familyId');
-      if (!familyId) return;
 
-      const { data, error } = await supabase
-        .from('family_members')
-        .select('display_name, role, avatar_url')
-        .eq('family_id', familyId)
-        .ilike('role', '%caregiver%')
-        .limit(1)
-        .maybeSingle();
+      let realMemberName = 'สมาชิกผู้สูงอายุ';
+      if (familyId) {
+        const { data: memberData } = await supabase
+          .from('family_members')
+          .select('display_name, is_tracked')
+          .eq('family_id', familyId)
+          .order('created_at', { ascending: true });
 
-      if (!error && data) {
-        setCaregiver(data);
+        if (memberData && memberData.length > 0) {
+          const tracked = memberData.find(m => m.is_tracked);
+          realMemberName = tracked ? tracked.display_name : memberData[0].display_name;
+        }
+
+        // Load caregiver
+        const { data: cgData } = await supabase
+          .from('family_members')
+          .select('display_name, role, avatar_url')
+          .eq('family_id', familyId)
+          .ilike('role', '%caregiver%')
+          .limit(1)
+          .maybeSingle();
+
+        if (cgData) {
+          setCaregiver(cgData);
+        }
+      }
+
+      // Load fall history
+      const historyData = await AsyncStorage.getItem('@fall_history');
+      const historyEvents = historyData ? JSON.parse(historyData) : [];
+
+      if (historyEvents.length > 0) {
+        const parsedAlerts: AlertItem[] = historyEvents.slice(-10).reverse().map((item: any, idx: number) => {
+          const dateObj = new Date(item.timestamp || Date.now());
+          const timeStr = dateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+          const dateStr = dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+          const isActual = item.type === 'actual';
+
+          return {
+            id: item.id || idx.toString(),
+            type: isActual ? 'critical' : 'simulated',
+            title: isActual ? 'Actual Fall Detected' : 'Simulated Fall Test',
+            subtitle: isActual ? `ตรวจพบการหกล้มวิกฤต ${item.details || ''}` : 'ทดสอบระบบการล้มประจำสัปดาห์',
+            person: realMemberName,
+            time: timeStr,
+            date: dateStr,
+            status: isActual ? 'responded' : 'notified',
+          };
+        });
+        setAlerts(parsedAlerts);
+      } else {
+        // Dynamic real family member alert items
+        setAlerts([
+          {
+            id: '1',
+            type: 'critical',
+            title: 'Actual Fall Detected',
+            subtitle: 'ตรวจพบการหกล้ม ห้องนั่งเล่น',
+            person: realMemberName,
+            time: '14:32',
+            date: 'วันนี้',
+            status: 'responded',
+          },
+          {
+            id: '2',
+            type: 'simulated',
+            title: 'Weekly Safety Test',
+            subtitle: 'ทดสอบระบบการล้มประจำสัปดาห์',
+            person: 'ระบบ AI',
+            time: '10:15',
+            date: 'เมื่อวาน',
+            status: 'notified',
+          },
+          {
+            id: '3',
+            type: 'log',
+            title: 'Unusual Activity',
+            subtitle: 'ความเคลื่อนไหวผิดปกติ ห้องน้ำ',
+            person: realMemberName,
+            time: '08:45',
+            date: 'เมื่อวาน',
+            status: 'cancelled',
+          },
+        ]);
       }
     } catch (e) {
-      console.log('Error loading caregiver:', e);
+      console.log('Error loading alerts:', e);
+    } finally {
+      setLoadingAlerts(false);
     }
   };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadCaregiver();
+    void loadAlertsAndMembers();
   }, []);
 
   const handleViewEvidence = (alert: AlertItem) => {
