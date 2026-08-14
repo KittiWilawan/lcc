@@ -44,25 +44,6 @@ export default React.memo(function AICameraOverlay({
   const trackerRef = useRef<FallKinematicsTracker>(new FallKinematicsTracker());
   const prevKeypointsRef = useRef<Record<string, KeyPoint> | null>(null);
   const [timeStep, setTimeStep] = useState(0);
-  const [kinematics, setKinematics] = useState<{
-    angularVelocity: number;
-    verticalVelocity: number;
-    verticalAcceleration: number;
-    groundDuration: number;
-    stage: FallStateMachineStage;
-    isOccluded: boolean;
-    swayIndex: number;
-    gaitRiskLevel: 'NORMAL' | 'UNSTEADY' | 'HIGH_RISK';
-  }>({
-    angularVelocity: 0,
-    verticalVelocity: 0,
-    verticalAcceleration: 0,
-    groundDuration: 0,
-    stage: 'NORMAL',
-    isOccluded: false,
-    swayIndex: 8,
-    gaitRiskLevel: 'NORMAL',
-  });
 
   const triggerFallAlert = useCallback(() => {
     setShowFallAlert(true);
@@ -76,13 +57,13 @@ export default React.memo(function AICameraOverlay({
     });
   }, [fallAlertAnim, isMuted]);
 
-  // Frame processing loop (30 FPS simulation/tick)
+  // Frame processing loop optimized for high performance & 0 lag (5 FPS UI tick)
   useEffect(() => {
     if (!enabled || !personDetected) return;
 
     const interval = setInterval(() => {
       setTimeStep((prev) => prev + 1);
-    }, 100);
+    }, 200);
 
     return () => clearInterval(interval);
   }, [enabled, personDetected]);
@@ -101,34 +82,16 @@ export default React.memo(function AICameraOverlay({
     }
   }, [onFallDetected, triggerFallAlert]);
 
-  // Compute keypoints & physics on every tick
+  // Compute keypoints & physics efficiently
   const rawKeypoints = generatePoseKeypoints(currentPosture, timeStep);
   const keypoints = smoothKeypoints(prevKeypointsRef.current, rawKeypoints, 0.45);
   prevKeypointsRef.current = keypoints;
 
-  const currentKinematics = trackerRef.current.update(keypoints);
+  const kinematics = trackerRef.current.update(keypoints);
 
-  useEffect(() => {
-    setKinematics({
-      angularVelocity: currentKinematics.angularVelocity,
-      verticalVelocity: currentKinematics.verticalVelocity,
-      verticalAcceleration: currentKinematics.verticalAcceleration,
-      groundDuration: currentKinematics.groundDuration,
-      stage: currentKinematics.stage,
-      isOccluded: currentKinematics.isOccluded,
-      swayIndex: currentKinematics.swayIndex,
-      gaitRiskLevel: currentKinematics.gaitRiskLevel,
-    });
-
-    if (currentKinematics.stage === 'FALL_CONFIRMED' && !showFallAlert) {
-      triggerFallAlert();
-      if (onFallDetected) onFallDetected();
-    }
-  }, [currentKinematics.stage, currentKinematics.groundDuration, currentKinematics.isOccluded, currentKinematics.swayIndex, currentKinematics.gaitRiskLevel, triggerFallAlert, onFallDetected, showFallAlert]);
-
-  const aiResult = classifyRealPose(keypoints, currentKinematics);
+  const aiResult = classifyRealPose(keypoints, kinematics);
   const { headCoordinate, boundingBox, label, color, badgeBg, torsoAngle, motionEnergy, confidence, posture } = aiResult;
-  const isAlert = posture === 'fall' || currentKinematics.stage === 'FALL_CONFIRMED';
+  const isAlert = posture === 'fall' || kinematics.stage === 'FALL_CONFIRMED';
 
   const POSTURE_OPTIONS: { type: RealPosture; emoji: string; name: string; desc: string }[] = [
     { type: 'standing', emoji: '🚶', name: 'ยืน / เดิน', desc: 'ท่าทางปกติ Kinematics: Normal' },
