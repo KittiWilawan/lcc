@@ -15,7 +15,8 @@ import {
   Dimensions,
   Modal,
   TextInput,
-  Alert
+  Alert,
+  Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,14 +24,24 @@ import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AICameraOverlay from '../../components/AICameraOverlay';
 import { FullScreenCameraModal } from '../../components/FullScreenCameraModal';
+import { playEmergencySiren, speakCalmingMessage } from '../../lib/realAIEngine';
+import { sendFallEventLineAlert } from '../../lib/lineNotify';
+import {
+  registerForPushNotificationsAsync,
+  sendLocalFallNotification,
+  sendLocalSOSNotification,
+} from '../../lib/pushNotifications';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface CameraItem {
   id: string;
   name: string;
-  type: 'video' | 'device';
+  type: 'video' | 'device' | 'rtsp';
   url?: string;
+  protocol?: 'rtsp' | 'rtmp' | 'hls' | 'mp4' | 'unknown';
+  assigned_member_id?: string;
+  assigned_member_name?: string;
 }
 
 export default function DashboardScreen() {
@@ -40,11 +51,14 @@ export default function DashboardScreen() {
   // Camera State
   const [cameras, setCameras] = useState<CameraItem[]>([]);
   const [fullscreenCam, setFullscreenCam] = useState<CameraItem | null>(null);
+  const [activeAlertCamId, setActiveAlertCamId] = useState<string | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [showAddCameraModal, setShowAddCameraModal] = useState(false);
+  const [showSOSModal, setShowSOSModal] = useState(false);
   const [newCamName, setNewCamName] = useState('');
-  const [newCamType, setNewCamType] = useState<'video' | 'device'>('video');
+  const [newCamType, setNewCamType] = useState<'video' | 'device' | 'rtsp'>('rtsp');
   const [newCamUrl, setNewCamUrl] = useState('');
+  const [assignedMemberId, setAssignedMemberId] = useState<string>('');
 
   const [events, setEvents] = useState([
     { id: 1, time: '10:30', title: 'ตรวจพบการล้ม (ยืนยันแล้ว)', subtitle: 'เจ้าหน้าที่รับทราบและติดต่อแล้ว', isAlert: true },
@@ -64,15 +78,25 @@ export default function DashboardScreen() {
       if (data) {
         setCameras(JSON.parse(data));
       } else {
-        // Default mock camera
+        // Default cameras including IP Camera / RTSP stream
         const defaultCam: CameraItem = {
           id: '1',
-          name: 'ห้องนั่งเล่น',
-          type: 'video',
-          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4'
+          name: 'ห้องนั่งเล่น (CCTV Stream)',
+          type: 'rtsp',
+          url: 'rtsp://admin:123456@192.168.1.108:554/live/ch0',
+          protocol: 'rtsp',
+          assigned_member_name: 'คุณยายสมศรี',
         };
-        setCameras([defaultCam]);
-        await AsyncStorage.setItem('@family_cameras', JSON.stringify([defaultCam]));
+        const defaultCam2: CameraItem = {
+          id: '2',
+          name: 'หน้าบ้าน (Sample Video)',
+          type: 'video',
+          url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+          protocol: 'mp4',
+          assigned_member_name: 'คุณตาต้อย',
+        };
+        setCameras([defaultCam, defaultCam2]);
+        await AsyncStorage.setItem('@family_cameras', JSON.stringify([defaultCam, defaultCam2]));
       }
     } catch (e) {
       console.log('Error loading cameras', e);
@@ -90,11 +114,26 @@ export default function DashboardScreen() {
       }
     }
 
+    let protocol: 'rtsp' | 'rtmp' | 'hls' | 'mp4' | 'unknown' = 'unknown';
+    if (newCamType === 'rtsp') {
+      const urlLower = newCamUrl.toLowerCase();
+      if (urlLower.startsWith('rtsp://')) protocol = 'rtsp';
+      else if (urlLower.startsWith('rtmp://')) protocol = 'rtmp';
+      else if (urlLower.includes('.m3u8')) protocol = 'hls';
+    } else if (newCamType === 'video') {
+      protocol = 'mp4';
+    }
+
+    const assignedMember = members.find((m) => m.id === assignedMemberId);
+
     const newCam: CameraItem = {
       id: Date.now().toString(),
-      name: newCamName || (newCamType === 'device' ? 'กล้องมือถือ' : 'กล้องวงจรปิด'),
+      name: newCamName || (newCamType === 'device' ? 'กล้องมือถือ' : newCamType === 'rtsp' ? 'กล้อง IP (RTSP)' : 'กล้องวงจรปิด'),
       type: newCamType,
-      url: newCamType === 'video' ? newCamUrl : undefined
+      url: (newCamType === 'video' || newCamType === 'rtsp') ? newCamUrl : undefined,
+      protocol,
+      assigned_member_id: assignedMemberId || undefined,
+      assigned_member_name: assignedMember ? assignedMember.display_name : 'คุณยายสมศรี',
     };
 
     const updated = [...cameras, newCam];
@@ -103,6 +142,7 @@ export default function DashboardScreen() {
     setShowAddCameraModal(false);
     setNewCamName('');
     setNewCamUrl('');
+    setAssignedMemberId('');
   };
 
   const loadUserProfile = async () => {
@@ -149,6 +189,7 @@ export default function DashboardScreen() {
     void loadFamilyMembers();
     void loadUserProfile();
     void loadCameras();
+    void registerForPushNotificationsAsync();
 
     // Pulse animation for AI status dot
     Animated.loop(
@@ -201,12 +242,62 @@ export default function DashboardScreen() {
   };
 
   const clearEvents = () => setEvents([]);
-  const addEvent = async () => {
+  const triggerEmergencySOS = async () => {
+    playEmergencySiren();
+    void speakCalmingMessage(members.find(m => m.is_tracked)?.display_name);
+    setShowSOSModal(true);
+    const timeNow = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    setEvents(prev => [
+      { id: Date.now(), time: timeNow, title: '🚨 สัญญาณ SOS ขอความช่วยเหลือ', subtitle: 'ผู้ใช้กดปุ่มฉุกเฉินบนหน้าจอ', isAlert: true },
+      ...prev
+    ]);
+
+    // Send OS Lock Screen Push Notification & LINE Notification
+    void sendLocalSOSNotification();
+    void sendFallEventLineAlert({
+      personName: members.find(m => m.is_tracked)?.display_name || 'คุณยายสมศรี',
+      cameraName: 'ปุ่มฉุกเฉินบนแอป Dashboard',
+      groundDuration: 1.5,
+      torsoAngle: 12,
+    });
+
+    try {
+      const historyData = await AsyncStorage.getItem('@fall_history');
+      const history = historyData ? JSON.parse(historyData) : [];
+      history.push({
+        id: Date.now().toString(),
+        type: 'actual',
+        timestamp: new Date().toISOString(),
+        details: 'กดสัญญาณฉุกเฉิน SOS 1669'
+      });
+      await AsyncStorage.setItem('@fall_history', JSON.stringify(history));
+    } catch (e) {
+      console.log('Error saving SOS history', e);
+    }
+  };
+
+  const addEvent = async (camName?: string, personName?: string) => {
     const timeNow = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     setEvents([
       { id: Date.now(), time: timeNow, title: 'ตรวจพบการล้ม (จำลอง)', subtitle: 'กำลังแจ้งเตือนสมาชิกในครอบครัว', isAlert: true },
       ...events
     ]);
+
+    const targetPerson = personName || members.find(m => m.is_tracked)?.display_name || 'คุณยายสมศรี';
+    const targetCam = camName || 'กล้องวงจรปิด';
+
+    // Send OS Lock Screen Push Notification & LINE Notification
+    void sendLocalFallNotification({
+      personName: targetPerson,
+      cameraName: targetCam,
+      groundDuration: 1.8,
+    });
+    void sendFallEventLineAlert({
+      personName: targetPerson,
+      cameraName: targetCam,
+      groundDuration: 1.8,
+      torsoAngle: 16,
+    });
 
     try {
       const historyData = await AsyncStorage.getItem('@fall_history');
@@ -314,6 +405,56 @@ export default function DashboardScreen() {
           </View>
 
           {/* =========================================================
+              3-STEP USER-FRIENDLY QUICK GUIDE CARD
+             ========================================================= */}
+          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: '#e2e8f0' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <MaterialCommunityIcons name="compass-outline" size={18} color="#059669" />
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }}>คู่มือการใช้งานง่ายใน 3 ขั้นตอน</Text>
+              </View>
+              <View style={{ backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>ใช้งานง่าย</Text>
+              </View>
+            </View>
+
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/members')}>
+                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>1</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เพิ่มสมาชิกผู้สูงอายุ</Text>
+                  <Text style={{ fontSize: 10, color: '#64748b' }}>ใส่ชื่อและรูปถ่ายเพื่ออ้างอิง AI</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => setShowAddCameraModal(true)}>
+                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>2</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เชื่อมต่อกล้อง หรือใช้กล้องมือถือ</Text>
+                  <Text style={{ fontSize: 10, color: '#64748b' }}>เลือกกล้องและผูกเข้ากับสมาชิกประจำห้อง</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/profile')}>
+                <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>3</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>ตั้งค่า LINE แจ้งเตือนเข้ามือถือ</Text>
+                  <Text style={{ fontSize: 10, color: '#64748b' }}>ใส่ LINE Token รับข้อความภาพถ่ายฟรีในไลน์</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* =========================================================
               CAMERA SECTION - Premium dark card
              ========================================================= */}
           <View style={styles.sectionHeader}>
@@ -332,26 +473,39 @@ export default function DashboardScreen() {
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
-            {cameras.map(cam => (
-              <View key={cam.id} style={[styles.cameraCard, { width: SCREEN_WIDTH - 40, marginRight: 16, marginBottom: 0 }]}>
-                <View style={styles.cameraView}>
-                  {cam.type === 'video' && cam.url ? (
-                    <Image
-                      source={{ uri: cam.url }}
-                      style={styles.videoPlayer}
-                      contentFit="cover"
-                      autoplay
-                    />
-                  ) : (
-                    <CameraView style={styles.videoPlayer} facing="back" />
-                  )}
+            {cameras.map(cam => {
+              const isCamAlerting = activeAlertCamId === cam.id;
+              return (
+                <View
+                  key={cam.id}
+                  style={[
+                    styles.cameraCard,
+                    { width: SCREEN_WIDTH - 40, marginRight: 16, marginBottom: 0 },
+                    isCamAlerting && { borderWidth: 3, borderColor: '#ef4444' }
+                  ]}
+                >
+                  <View style={styles.cameraView}>
+                    {cam.type === 'video' && cam.url ? (
+                      <Image
+                        source={{ uri: cam.url }}
+                        style={styles.videoPlayer}
+                        contentFit="cover"
+                        autoplay
+                      />
+                    ) : (
+                      <CameraView style={styles.videoPlayer} facing="back" />
+                    )}
 
-                  {/* AI Vision Person & Fall Overlay */}
-                  <AICameraOverlay
-                    personName="คุณยายสมศรี"
-                    initialPosture="standing"
-                    onFallDetected={() => { void addEvent(); }}
-                  />
+                    {/* AI Vision Person & Fall Overlay */}
+                    <AICameraOverlay
+                      personName={cam.assigned_member_name || members.find(m => m.is_tracked)?.display_name || "คุณยายสมศรี"}
+                      initialPosture="standing"
+                      isMonitored={members.length === 0 || members.some(m => m.is_tracked)}
+                      onFallDetected={() => {
+                        setActiveAlertCamId(cam.id);
+                        void addEvent();
+                      }}
+                    />
 
                   <View style={styles.liveBadge}>
                     <Animated.View style={[styles.liveDot, { opacity: glowAnim }]} />
@@ -384,14 +538,24 @@ export default function DashboardScreen() {
                     <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#059669" />
                     <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{cam.name}</Text>
                   </View>
-                  <View style={{ backgroundColor: cam.type === 'device' ? '#fef3c7' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                    <Text style={{ fontSize: 10, fontWeight: '600', color: cam.type === 'device' ? '#92400e' : '#64748b' }}>
-                      {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
-                    </Text>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {cam.assigned_member_name && (
+                      <View style={{ backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <MaterialCommunityIcons name="account-heart" size={12} color="#059669" />
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>{cam.assigned_member_name}</Text>
+                      </View>
+                    )}
+                    <View style={{ backgroundColor: cam.type === 'device' ? '#fef3c7' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '600', color: cam.type === 'device' ? '#92400e' : '#64748b' }}>
+                        {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </View>
-            ))}
+            );
+          })}
           </ScrollView>
 
           {/* =========================================================
@@ -489,14 +653,17 @@ export default function DashboardScreen() {
           {/* =========================================================
               SOS BUTTON - Premium emergency button
              ========================================================= */}
-          <TouchableOpacity style={styles.sosButton} activeOpacity={0.8} onPress={addEvent}>
+          {/* =========================================================
+              SOS BUTTON - Premium emergency button
+             ========================================================= */}
+          <TouchableOpacity style={styles.sosButton} activeOpacity={0.8} onPress={triggerEmergencySOS}>
             <View style={styles.sosInner}>
               <View style={styles.sosIconContainer}>
                 <MaterialCommunityIcons name="alert-octagon" size={28} color="#ffffff" />
               </View>
               <View style={styles.sosTextContent}>
-                <Text style={styles.sosTitle}>จำลองเหตุฉุกเฉิน</Text>
-                <Text style={styles.sosSubtitle}>Simulate Fall Detection</Text>
+                <Text style={styles.sosTitle}>🚨 กดปุ่มฉุกเฉิน SOS 1669</Text>
+                <Text style={styles.sosSubtitle}>ส่งสัญญาณเตือนภัย + โทรด่วน 1669</Text>
               </View>
               <View style={styles.sosBadge}>
                 <Text style={styles.sosBadgeText}>SOS</Text>
@@ -507,6 +674,7 @@ export default function DashboardScreen() {
           <View style={{ height: 20 }} />
         </ScrollView>
       </View>
+
       {/* Add Camera Modal */}
       <Modal visible={showAddCameraModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -526,30 +694,94 @@ export default function DashboardScreen() {
               onChangeText={setNewCamName}
             />
 
+            <Text style={styles.inputLabel}>ผู้สูงอายุ / สมาชิกประจำกล้อง</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              {members.map((m) => {
+                const isSel = assignedMemberId === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.typeBtn, isSel && styles.typeBtnActive, { marginRight: 8 }]}
+                    onPress={() => setAssignedMemberId(isSel ? '' : m.id)}
+                  >
+                    <MaterialCommunityIcons name="account-heart" size={16} color={isSel ? '#059669' : '#64748b'} />
+                    <Text style={[styles.typeBtnText, isSel && styles.typeBtnTextActive]}>{m.display_name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
             <Text style={styles.inputLabel}>ประเภทกล้อง</Text>
             <View style={styles.typeSelector}>
+              <TouchableOpacity
+                style={[styles.typeBtn, newCamType === 'rtsp' && styles.typeBtnActive]}
+                onPress={() => setNewCamType('rtsp')}
+              >
+                <MaterialCommunityIcons name="ip-network-outline" size={18} color={newCamType === 'rtsp' ? '#059669' : '#64748b'} />
+                <Text style={[styles.typeBtnText, newCamType === 'rtsp' && styles.typeBtnTextActive]}>IP Cam (RTSP)</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.typeBtn, newCamType === 'video' && styles.typeBtnActive]}
                 onPress={() => setNewCamType('video')}
               >
-                <MaterialCommunityIcons name="cctv" size={20} color={newCamType === 'video' ? '#059669' : '#64748b'} />
-                <Text style={[styles.typeBtnText, newCamType === 'video' && styles.typeBtnTextActive]}>CCTV (URL)</Text>
+                <MaterialCommunityIcons name="cctv" size={18} color={newCamType === 'video' ? '#059669' : '#64748b'} />
+                <Text style={[styles.typeBtnText, newCamType === 'video' && styles.typeBtnTextActive]}>Video MP4</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.typeBtn, newCamType === 'device' && styles.typeBtnActive]}
                 onPress={() => setNewCamType('device')}
               >
-                <MaterialCommunityIcons name="cellphone" size={20} color={newCamType === 'device' ? '#059669' : '#64748b'} />
-                <Text style={[styles.typeBtnText, newCamType === 'device' && styles.typeBtnTextActive]}>กล้องมือถือ</Text>
+                <MaterialCommunityIcons name="cellphone" size={18} color={newCamType === 'device' ? '#059669' : '#64748b'} />
+                <Text style={[styles.typeBtnText, newCamType === 'device' && styles.typeBtnTextActive]}>มือถือ</Text>
               </TouchableOpacity>
             </View>
 
-            {newCamType === 'video' && (
+            {newCamType === 'rtsp' && (
               <>
-                <Text style={styles.inputLabel}>ลิงก์วิดีโอ (URL)</Text>
+                <Text style={styles.inputLabel}>RTSP / HLS Stream URL</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="เช่น http://.../stream.mp4"
+                  placeholder="rtsp://admin:123456@192.168.1.100:554/stream"
+                  value={newCamUrl}
+                  onChangeText={setNewCamUrl}
+                  autoCapitalize="none"
+                />
+                <Text style={{ fontSize: 10, color: '#64748b', marginTop: -6, marginBottom: 12 }}>
+                  รองรับโปรโตคอล: rtsp://, rtmp://, หรือ HLS (.m3u8)
+                </Text>
+              </>
+            )}
+
+            {newCamType === 'video' && (
+              <>
+                <Text style={styles.inputLabel}>เลือกว่าจะใช้วิดีโอทดสอบใด (Preset)</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#f1f5f9', padding: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1' }}
+                    onPress={() => {
+                      setNewCamName('วิดีโอทดสอบการเดิน');
+                      setNewCamUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4');
+                    }}
+                  >
+                    <MaterialCommunityIcons name="walk" size={18} color="#059669" />
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#0f172a', marginTop: 2 }}>📹 เดินทั่วไป</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#fef2f2', padding: 8, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#fca5a5' }}
+                    onPress={() => {
+                      setNewCamName('วิดีโอสาธิตการล้ม');
+                      setNewCamUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4');
+                    }}
+                  >
+                    <MaterialCommunityIcons name="alert-decagram" size={18} color="#dc2626" />
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#dc2626', marginTop: 2 }}>⚠️ สาธิตการล้ม</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.inputLabel}>ลิงก์วิดีโอ MP4 (URL)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://commondatastorage.googleapis.com/.../sample.mp4"
                   value={newCamUrl}
                   onChangeText={setNewCamUrl}
                   autoCapitalize="none"
@@ -559,6 +791,76 @@ export default function DashboardScreen() {
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleAddCamera}>
               <Text style={styles.saveBtnText}>บันทึก</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Emergency SOS 1669 Modal */}
+      <Modal visible={showSOSModal} animationType="fade" transparent onRequestClose={() => setShowSOSModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: '#0f172a', borderColor: '#ef4444', borderWidth: 2 }]}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="alert-decagram" size={26} color="#ef4444" />
+                <Text style={[styles.modalTitle, { color: '#ffffff', fontSize: 18 }]}>🚨 แจ้งเตือนฉุกเฉิน SOS</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowSOSModal(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ color: '#cbd5e1', fontSize: 13, marginVertical: 12, lineHeight: 18 }}>
+              ส่งสัญญาณขอความช่วยเหลือแล้ว! เลือกช่องทางติดต่อเพื่อรับความช่วยเหลือด่วน:
+            </Text>
+
+            {/* 1669 Medical Emergency Call */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#dc2626',
+                padding: 14,
+                borderRadius: 12,
+                marginBottom: 10,
+                gap: 12,
+              }}
+              onPress={() => { void Linking.openURL('tel:1669'); }}
+            >
+              <MaterialCommunityIcons name="phone-in-talk" size={26} color="#ffffff" />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#ffffff', fontSize: 15, fontWeight: '900' }}>โทร 1669 (การแพทย์ฉุกเฉิน)</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11 }}>สายด่วนกู้ชีพ 1669 ฟรี 24 ชั่วโมง</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color="#ffffff" />
+            </TouchableOpacity>
+
+            {/* Caregiver Phone Call */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#059669',
+                padding: 14,
+                borderRadius: 12,
+                marginBottom: 16,
+                gap: 12,
+              }}
+              onPress={() => { void Linking.openURL('tel:0812345678'); }}
+            >
+              <MaterialCommunityIcons name="account-heart" size={26} color="#ffffff" />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#ffffff', fontSize: 15, fontWeight: '900' }}>โทรหาผู้ดูแลหลัก</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 11 }}>ติดต่อสมาชิกในครอบครัว</Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color="#ffffff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
+              onPress={() => setShowSOSModal(false)}
+            >
+              <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '700' }}>ปิดหน้าต่างฉุกเฉิน</Text>
             </TouchableOpacity>
           </View>
         </View>

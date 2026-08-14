@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
+import { getLineToken, saveLineToken, sendFallEventLineAlert, sendLineNotification } from '../lib/lineNotify';
 
 interface EmergencyContact {
   id: string;
@@ -43,6 +44,8 @@ export default function ProfileScreen() {
 
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [lineToken, setLineToken] = useState('');
+  const [testingLine, setTestingLine] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [newAvatarImage, setNewAvatarImage] = useState<string | null>(null);
   const [familyCode, setFamilyCode] = useState('ไม่มีรหัส');
@@ -95,6 +98,10 @@ export default function ProfileScreen() {
       setActivitySummary(data?.activity_summary ?? true);
       setEmergencySms(data?.emergency_sms ?? false);
 
+      // โหลด LINE Notify Token
+      const storedLineToken = await getLineToken();
+      if (storedLineToken) setLineToken(storedLineToken);
+
       // ดึงข้อมูล Contacts
       const { data: contactsData } = await supabase
         .from('emergency_contacts')
@@ -105,10 +112,42 @@ export default function ProfileScreen() {
       if (contactsData) {
         setContacts(contactsData);
       }
-    } catch (error) {
-      console.log(error);
+    } catch (error: any) {
+      console.log('Error loading profile:', error.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveLineToken = async () => {
+    await saveLineToken(lineToken);
+    Alert.alert('สำเร็จ', 'บันทึก LINE Notify Token เรียบร้อยแล้ว');
+  };
+
+  const handleTestLineNotify = async () => {
+    if (!lineToken.trim()) {
+      Alert.alert('แจ้งเตือน', 'กรุณากรอก LINE Notify Token ก่อนทดสอบ');
+      return;
+    }
+    try {
+      setTestingLine(true);
+      await saveLineToken(lineToken);
+      const res = await sendFallEventLineAlert({
+        personName: 'คุณยายสมศรี (ทดสอบระบบ)',
+        cameraName: 'ห้องนั่งเล่น',
+        groundDuration: 1.5,
+        torsoAngle: 15,
+        tokenOverride: lineToken.trim(),
+      });
+      if (res.success) {
+        Alert.alert('สำเร็จ! 🎉', 'ส่งข้อความทดสอบพร้อมรูปถ่ายเข้ากลุ่ม LINE เรียบร้อยแล้ว');
+      } else {
+        Alert.alert('เกิดข้อผิดพลาด', res.message);
+      }
+    } catch (e: any) {
+      Alert.alert('เกิดข้อผิดพลาด', e.message || 'ไม่สามารถส่งการแจ้งเตือน LINE ได้');
+    } finally {
+      setTestingLine(false);
     }
   };
 
@@ -423,6 +462,46 @@ export default function ProfileScreen() {
                 trackColor={{ false: '#cbd5e1', true: '#059669' }}
                 thumbColor={'#ffffff'}
               />
+            </View>
+
+            {/* LINE Notify Integration Card */}
+            <View style={{ marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <MaterialCommunityIcons name="chat-processing-outline" size={18} color="#06c755" />
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }}>LINE Notify (ส่งรูปภาพฟรีเข้ากลุ่ม LINE)</Text>
+              </View>
+
+              <View style={{ backgroundColor: '#ffffff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8, lineHeight: 16 }}>
+                  กรอก LINE Notify Token ของกลุ่มครอบครัวเพื่อรับข้อความเตือนภัย + รูป Snapshot ทันทีเมื่อเกิดเหตุล้ม:
+                </Text>
+                <TextInput
+                  style={[styles.input, { marginBottom: 10, fontSize: 12 }]}
+                  placeholder="วาง LINE Notify Token ที่นี่..."
+                  value={lineToken}
+                  onChangeText={setLineToken}
+                  autoCapitalize="none"
+                />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#06c755', paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                    onPress={handleSaveLineToken}
+                  >
+                    <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>บันทึก Token</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, backgroundColor: '#0f172a', paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                    onPress={handleTestLineNotify}
+                    disabled={testingLine}
+                  >
+                    {testingLine ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>💬 ทดสอบส่ง LINE</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           </View>
 

@@ -1,11 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Platform } from 'react-native';
+
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   RealPosture,
+  FallStateMachineStage,
   SKELETON_BONES,
   generatePoseKeypoints,
   classifyRealPose,
+  smoothKeypoints,
+  FallKinematicsTracker,
+  KeyPoint,
+  playEmergencySiren,
 } from '../lib/realAIEngine';
 
 interface AICameraOverlayProps {
@@ -14,6 +20,7 @@ interface AICameraOverlayProps {
   initialPersonDetected?: boolean;
   onFallDetected?: () => void;
   compact?: boolean;
+  isMonitored?: boolean;
 }
 
 export default React.memo(function AICameraOverlay({
@@ -22,6 +29,7 @@ export default React.memo(function AICameraOverlay({
   initialPersonDetected = true,
   onFallDetected,
   compact = false,
+  isMonitored = true,
 }: AICameraOverlayProps) {
   const [enabled, setEnabled] = useState(true);
   const [personDetected, setPersonDetected] = useState(initialPersonDetected);
@@ -29,10 +37,36 @@ export default React.memo(function AICameraOverlay({
   const [currentPosture, setCurrentPosture] = useState<RealPosture>(initialPosture);
   const [showTestMenu, setShowTestMenu] = useState(false);
   const [showFallAlert, setShowFallAlert] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [fallAlertAnim] = useState(() => new Animated.Value(0));
+
+  // Real-time Physics Kinematics & Smoothed Keypoints State
+  const trackerRef = useRef<FallKinematicsTracker>(new FallKinematicsTracker());
+  const prevKeypointsRef = useRef<Record<string, KeyPoint> | null>(null);
+  const [timeStep, setTimeStep] = useState(0);
+  const [kinematics, setKinematics] = useState<{
+    angularVelocity: number;
+    verticalVelocity: number;
+    verticalAcceleration: number;
+    groundDuration: number;
+    stage: FallStateMachineStage;
+    isOccluded: boolean;
+    swayIndex: number;
+    gaitRiskLevel: 'NORMAL' | 'UNSTEADY' | 'HIGH_RISK';
+  }>({
+    angularVelocity: 0,
+    verticalVelocity: 0,
+    verticalAcceleration: 0,
+    groundDuration: 0,
+    stage: 'NORMAL',
+    isOccluded: false,
+    swayIndex: 8,
+    gaitRiskLevel: 'NORMAL',
+  });
 
   const triggerFallAlert = useCallback(() => {
     setShowFallAlert(true);
+    playEmergencySiren(isMuted);
     Animated.sequence([
       Animated.timing(fallAlertAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.delay(3000),
@@ -40,12 +74,24 @@ export default React.memo(function AICameraOverlay({
     ]).start(() => {
       setShowFallAlert(false);
     });
-  }, [fallAlertAnim]);
+  }, [fallAlertAnim, isMuted]);
+
+  // Frame processing loop (30 FPS simulation/tick)
+  useEffect(() => {
+    if (!enabled || !personDetected) return;
+
+    const interval = setInterval(() => {
+      setTimeStep((prev) => prev + 1);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [enabled, personDetected]);
 
   const handleSelectPosture = useCallback((type: RealPosture) => {
     setPersonDetected(true);
     setCurrentPosture(type);
     setShowTestMenu(false);
+    trackerRef.current.reset();
 
     if (type === 'fall') {
       triggerFallAlert();
@@ -54,6 +100,54 @@ export default React.memo(function AICameraOverlay({
       }
     }
   }, [onFallDetected, triggerFallAlert]);
+
+  // Compute keypoints & physics on every tick
+  const rawKeypoints = generatePoseKeypoints(currentPosture, timeStep);
+  const keypoints = smoothKeypoints(prevKeypointsRef.current, rawKeypoints, 0.45);
+  prevKeypointsRef.current = keypoints;
+
+  const currentKinematics = trackerRef.current.update(keypoints);
+
+  useEffect(() => {
+    setKinematics({
+      angularVelocity: currentKinematics.angularVelocity,
+      verticalVelocity: currentKinematics.verticalVelocity,
+      verticalAcceleration: currentKinematics.verticalAcceleration,
+      groundDuration: currentKinematics.groundDuration,
+      stage: currentKinematics.stage,
+      isOccluded: currentKinematics.isOccluded,
+      swayIndex: currentKinematics.swayIndex,
+      gaitRiskLevel: currentKinematics.gaitRiskLevel,
+    });
+
+    if (currentKinematics.stage === 'FALL_CONFIRMED' && !showFallAlert) {
+      triggerFallAlert();
+      if (onFallDetected) onFallDetected();
+    }
+  }, [currentKinematics.stage, currentKinematics.groundDuration, currentKinematics.isOccluded, currentKinematics.swayIndex, currentKinematics.gaitRiskLevel, triggerFallAlert, onFallDetected, showFallAlert]);
+
+  const aiResult = classifyRealPose(keypoints, currentKinematics);
+  const { headCoordinate, boundingBox, label, color, badgeBg, torsoAngle, motionEnergy, confidence, posture } = aiResult;
+  const isAlert = posture === 'fall' || currentKinematics.stage === 'FALL_CONFIRMED';
+
+  const POSTURE_OPTIONS: { type: RealPosture; emoji: string; name: string; desc: string }[] = [
+    { type: 'standing', emoji: '🚶', name: 'ยืน / เดิน', desc: 'ท่าทางปกติ Kinematics: Normal' },
+    { type: 'bending', emoji: '🙇', name: 'ก้ม', desc: 'กำลังก้มหยิบของ Angle Shift' },
+    { type: 'relaxing', emoji: '🛋️', name: 'นอนเล่น', desc: 'พักผ่อนบนโซฟา Position Low' },
+    { type: 'sleeping', emoji: '💤', name: 'นอนหลับ', desc: 'นอนนิ่ง ไม่ขยับ Velocity 0' },
+    { type: 'fall', emoji: '🚨', name: 'ล้ม!', desc: 'Physics Impact + Ground Duration' },
+  ];
+
+  if (!isMonitored) {
+    return (
+      <View style={styles.disabledContainer}>
+        <View style={[styles.smallPill, { backgroundColor: 'rgba(234, 179, 8, 0.85)' }]}>
+          <MaterialCommunityIcons name="pause-circle-outline" size={12} color="#ffffff" />
+          <Text style={[styles.smallPillText, { color: '#ffffff' }]}>ปิดการตรวจจับ {personName}</Text>
+        </View>
+      </View>
+    );
+  }
 
   if (!enabled) {
     return (
@@ -65,19 +159,6 @@ export default React.memo(function AICameraOverlay({
       </View>
     );
   }
-
-  const rawKeypoints = generatePoseKeypoints(currentPosture, 0);
-  const aiResult = classifyRealPose(rawKeypoints);
-  const { headCoordinate, boundingBox, keypoints, label, color, badgeBg, torsoAngle, motionEnergy, confidence, posture } = aiResult;
-  const isAlert = posture === 'fall';
-
-  const POSTURE_OPTIONS: { type: RealPosture; emoji: string; name: string; desc: string }[] = [
-    { type: 'standing', emoji: '🚶', name: 'ยืน / เดิน', desc: 'ท่าทางปกติ สีเขียว' },
-    { type: 'bending', emoji: '🙇', name: 'ก้ม', desc: 'กำลังก้มหยิบของ สีส้ม' },
-    { type: 'relaxing', emoji: '🛋️', name: 'นอนเล่น', desc: 'พักผ่อนบนโซฟา สีฟ้า' },
-    { type: 'sleeping', emoji: '💤', name: 'นอนหลับ', desc: 'นอนนิ่ง ไม่ขยับ สีม่วง' },
-    { type: 'fall', emoji: '🚨', name: 'ล้ม!', desc: 'ตรวจพบการล้ม! สีแดง + แจ้งเตือน' },
-  ];
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -125,7 +206,9 @@ export default React.memo(function AICameraOverlay({
 
             {isAlert && (
               <View style={styles.alertBanner}>
-                <Text style={styles.alertBannerText}>⚠️ ตรวจพบการล้ม!</Text>
+                <Text style={styles.alertBannerText}>
+                  ⚠️ ตรวจพบการล้ม! {kinematics.groundDuration > 0 ? `(${kinematics.groundDuration}s)` : ''}
+                </Text>
               </View>
             )}
           </View>
@@ -168,17 +251,40 @@ export default React.memo(function AICameraOverlay({
               ))}
             </View>
           )}
+
+          {/* Live Kinematics Telemetry Overlay (Bottom Left) */}
+          <View style={styles.telemetryHUD}>
+            <Text style={styles.telemetryTitle}>
+              ⚙️ AI Kinematics Engine {kinematics.isOccluded ? ' [Occlusion Active]' : ''}
+            </Text>
+            <Text style={styles.telemetryText}>Stage: {kinematics.stage}</Text>
+            <Text style={styles.telemetryText}>Angle: {torsoAngle}° | dθ/dt: {kinematics.angularVelocity}°/s</Text>
+            <Text style={styles.telemetryText}>Vy: {kinematics.verticalVelocity}%/s | Ground: {kinematics.groundDuration}s</Text>
+            <Text style={[
+              styles.telemetryText,
+              kinematics.gaitRiskLevel === 'HIGH_RISK' && { color: '#ef4444', fontWeight: '800' },
+              kinematics.gaitRiskLevel === 'UNSTEADY' && { color: '#f59e0b', fontWeight: '800' }
+            ]}>
+              Sway: {kinematics.swayIndex}% | Gait: {kinematics.gaitRiskLevel}
+            </Text>
+          </View>
         </>
       ) : (
         <View style={styles.scanningBadge}>
           <MaterialCommunityIcons name="radar" size={12} color="#38bdf8" />
-          <Text style={styles.scanningText}>AI Scanning...</Text>
+          <Text style={styles.scanningText}>AI Scanning Frame...</Text>
         </View>
       )}
 
       {/* ===== Minimal Top Right Controls ===== */}
-      <View style={styles.topControls}>
-        {/* AI Test Button - the only visible button */}
+      <View style={[styles.topControls, { flexDirection: 'row', gap: 6 }]}>
+        <TouchableOpacity
+          style={[styles.aiTestBtn, isMuted && { backgroundColor: '#64748b' }]}
+          onPress={() => setIsMuted((prev) => !prev)}
+        >
+          <MaterialCommunityIcons name={isMuted ? 'volume-off' : 'volume-high'} size={13} color="#fff" />
+          <Text style={styles.aiTestBtnText}>{isMuted ? 'ปิดเสียง' : 'เปิดเสียง'}</Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.aiTestBtn, isAlert && personDetected && { backgroundColor: '#dc2626' }]}
           onPress={() => setShowTestMenu(true)}
@@ -203,8 +309,10 @@ export default React.memo(function AICameraOverlay({
             <MaterialCommunityIcons name="alert-circle" size={22} color="#ffffff" />
           </View>
           <View style={styles.fallNotifContent}>
-            <Text style={styles.fallNotifTitle}>🚨 แจ้งเตือนฉุกเฉิน!</Text>
-            <Text style={styles.fallNotifBody}>ตรวจพบ {personName} ล้ม — ระบบบันทึกเหตุการณ์แล้ว</Text>
+            <Text style={styles.fallNotifTitle}>🚨 แจ้งเตือนการล้มวิกฤต!</Text>
+            <Text style={styles.fallNotifBody}>
+              ตรวจพบ {personName} ล้ม ({kinematics.groundDuration}s) — กำลังส่งสัญญาณฉุกเฉิน
+            </Text>
           </View>
         </Animated.View>
       )}
@@ -217,14 +325,14 @@ export default React.memo(function AICameraOverlay({
             <View style={styles.menuHeader}>
               <View style={styles.menuHeaderLeft}>
                 <MaterialCommunityIcons name="flask-outline" size={18} color="#059669" />
-                <Text style={styles.menuTitle}>AI Vision Test Mode</Text>
+                <Text style={styles.menuTitle}>AI Physics & Kinematics Test</Text>
               </View>
               <TouchableOpacity onPress={() => setShowTestMenu(false)}>
                 <MaterialCommunityIcons name="close-circle" size={22} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.menuSubtitle}>เลือกท่าทางเพื่อจำลองการตรวจจับ AI:</Text>
+            <Text style={styles.menuSubtitle}>เลือกโหมดการคำนวณและท่าทางประมวลผล:</Text>
 
             {/* Posture Options */}
             {POSTURE_OPTIONS.map((opt) => {
@@ -280,7 +388,7 @@ export default React.memo(function AICameraOverlay({
             {personDetected && (
               <View style={styles.menuHud}>
                 <Text style={styles.menuHudText}>
-                  📐 Angle: {torsoAngle}° | ⚡ Energy: {motionEnergy} | 🎯 {confidence}%
+                  📐 Torso: {torsoAngle}° | dθ/dt: {kinematics.angularVelocity}°/s | Ground: {kinematics.groundDuration}s
                 </Text>
               </View>
             )}
@@ -544,4 +652,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   menuHudText: { fontSize: 10, fontWeight: '600', color: '#64748b' },
+
+  // Telemetry HUD
+  telemetryHUD: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 20,
+  },
+  telemetryTitle: {
+    color: '#38bdf8',
+    fontSize: 9,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  telemetryText: {
+    color: '#e2e8f0',
+    fontSize: 8,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
 });
+

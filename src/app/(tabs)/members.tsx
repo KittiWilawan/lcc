@@ -13,6 +13,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -30,6 +31,7 @@ interface FamilyMember {
   location: string | null;
   device_registered: boolean;
   avatar_url: string | null;
+  is_tracked?: boolean;
 }
 
 export default function MembersScreen() {
@@ -38,6 +40,19 @@ export default function MembersScreen() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<any>(null);
+
+  const toggleTracking = async (id: string, currentVal: boolean = false) => {
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, is_tracked: !currentVal } : m)));
+    const { error } = await supabase
+      .from('family_members')
+      .update({ is_tracked: !currentVal })
+      .eq('id', id);
+
+    if (error) {
+      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, is_tracked: currentVal } : m)));
+      console.error(error);
+    }
+  };
 
   // Add/Edit Member Modal State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -280,7 +295,19 @@ export default function MembersScreen() {
               <View style={[styles.statusDot, hasAlert ? styles.statusDotRed : styles.statusDotGreen]} />
             </View>
             <Text style={[styles.memberRole, hasAlert && styles.memberRoleAlert]}>{member.role}</Text>
+          </View>
 
+          <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: member.is_tracked ? '#059669' : '#94a3b8', marginBottom: 2 }}>
+              {member.is_tracked ? 'เปิดการตรวจจับ' : 'ปิดอยู่'}
+            </Text>
+            <Switch
+              value={member.is_tracked || false}
+              onValueChange={() => toggleTracking(member.id, member.is_tracked)}
+              trackColor={{ false: '#cbd5e1', true: '#86efac' }}
+              thumbColor={member.is_tracked ? '#059669' : '#94a3b8'}
+              style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+            />
           </View>
         </View>
 

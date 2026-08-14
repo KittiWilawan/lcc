@@ -13,14 +13,17 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { CameraView } from 'expo-camera';
 import AICameraOverlay from './AICameraOverlay';
+import { parseStreamUrl } from '../lib/realAIEngine';
 
 interface FullScreenCameraModalProps {
   visible: boolean;
   camera: {
     id: string;
     name: string;
-    type: 'video' | 'device';
+    type: 'video' | 'device' | 'rtsp';
     url?: string;
+    protocol?: 'rtsp' | 'rtmp' | 'hls' | 'mp4' | 'unknown';
+    assigned_member_name?: string;
   } | null;
   onClose: () => void;
 }
@@ -31,6 +34,13 @@ export const FullScreenCameraModal = React.memo(function FullScreenCameraModal({
   onClose,
 }: FullScreenCameraModalProps) {
   if (!camera) return null;
+
+  const streamInfo = camera.url ? parseStreamUrl(camera.url) : { protocol: 'unknown', isLiveStream: false, displayUrl: '' };
+  const streamBadgeText = 
+    camera.type === 'device' ? 'LOCAL CAMERA' :
+    streamInfo.protocol === 'rtsp' ? 'RTSP LIVE STREAM' :
+    streamInfo.protocol === 'hls' ? 'HLS LIVE STREAM' :
+    streamInfo.protocol === 'rtmp' ? 'RTMP STREAM' : 'IP CAMERA LIVE';
 
   return (
     <Modal
@@ -43,26 +53,26 @@ export const FullScreenCameraModal = React.memo(function FullScreenCameraModal({
       <StatusBar hidden />
       <View style={styles.container}>
         {/* Fullscreen Video/Camera Feed */}
-        {camera.type === 'video' && camera.url ? (
+        {camera.type === 'device' ? (
+          <CameraView style={styles.fullFeed} facing="back" />
+        ) : (
           <Image
-            source={{ uri: camera.url }}
+            source={{ uri: camera.url || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4' }}
             style={styles.fullFeed}
             contentFit="cover"
             autoplay
           />
-        ) : (
-          <CameraView style={styles.fullFeed} facing="back" />
         )}
 
         {/* Real AI Vision Overlay */}
-        <AICameraOverlay personName={camera.name} initialPosture="standing" />
+        <AICameraOverlay personName={camera.assigned_member_name || camera.name} initialPosture="standing" />
 
         {/* Top Control Header Bar */}
         <View style={styles.topHeader}>
           <View style={styles.headerLeft}>
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE FULLSCREEN</Text>
+              <Text style={styles.liveText}>{streamBadgeText}</Text>
             </View>
             <Text style={styles.cameraName} numberOfLines={1}>{camera.name}</Text>
           </View>
@@ -147,3 +157,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+

@@ -97,6 +97,21 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="analytics"
+        options={{
+          title: 'สถิติ',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+              <MaterialCommunityIcons 
+                name={focused ? "chart-line" : "chart-line-variant"} 
+                size={24} 
+                color={color} 
+              />
+            </View>
+          ),
+        }}
+      />
     </Tabs>
   );
 }
