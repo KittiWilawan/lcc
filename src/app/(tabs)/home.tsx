@@ -736,8 +736,8 @@ export default function DashboardScreen() {
                 style={[styles.typeBtn, newCamType === 'device' && styles.typeBtnActive]}
                 onPress={() => setNewCamType('device')}
               >
-                <MaterialCommunityIcons name="cellphone" size={18} color={newCamType === 'device' ? '#059669' : '#64748b'} />
-                <Text style={[styles.typeBtnText, newCamType === 'device' && styles.typeBtnTextActive]}>มือถือ</Text>
+                <MaterialCommunityIcons name="webcam" size={18} color={newCamType === 'device' ? '#059669' : '#64748b'} />
+                <Text style={[styles.typeBtnText, newCamType === 'device' && styles.typeBtnActive]}>เว็บแคม / กล้องมือถือ</Text>
               </TouchableOpacity>
             </View>
 
