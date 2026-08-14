@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { getLineToken, saveLineToken, sendFallEventLineAlert, sendLineNotification } from '../lib/lineNotify';
+import { useTheme } from '../context/ThemeContext';
 
 interface EmergencyContact {
   id: string;
@@ -36,6 +37,7 @@ interface EmergencyContact {
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { isDarkMode, toggleDarkMode, colors } = useTheme();
 
   // State 
   const [loading, setLoading] = useState(true);
@@ -52,6 +54,11 @@ export default function ProfileScreen() {
   const [fallAlerts, setFallAlerts] = useState(true);
   const [activitySummary, setActivitySummary] = useState(true);
   const [emergencySms, setEmergencySms] = useState(false);
+
+  // Security & App Lock State
+  const [appLockEnabled, setAppLockEnabled] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [newPin, setNewPin] = useState('');
 
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
@@ -112,11 +119,45 @@ export default function ProfileScreen() {
       if (contactsData) {
         setContacts(contactsData);
       }
+
+      // โหลดสถานะ App Lock
+      const storedLock = await AsyncStorage.getItem('@app_lock_enabled');
+      setAppLockEnabled(storedLock === 'true');
     } catch (error: any) {
       console.log('Error loading profile:', error.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleToggleAppLock = async (value: boolean) => {
+    if (value) {
+      const storedPin = await AsyncStorage.getItem('@app_lock_pin');
+      if (!storedPin) {
+        setShowPinModal(true);
+      } else {
+        await AsyncStorage.setItem('@app_lock_enabled', 'true');
+        setAppLockEnabled(true);
+        Alert.alert('เปิดใช้งานแล้ว 🔐', 'ระบบจะถาม PIN/Biometric เมื่อเปิดแอป');
+      }
+    } else {
+      await AsyncStorage.setItem('@app_lock_enabled', 'false');
+      setAppLockEnabled(false);
+      Alert.alert('ปิดใช้งานแล้ว', 'ยกเลิกการล็อกแอปเรียบร้อย');
+    }
+  };
+
+  const handleSavePin = async () => {
+    if (newPin.length !== 4) {
+      Alert.alert('แจ้งเตือน', 'กรุณากรอก PIN ให้ครบ 4 หลัก');
+      return;
+    }
+    await AsyncStorage.setItem('@app_lock_pin', newPin);
+    await AsyncStorage.setItem('@app_lock_enabled', 'true');
+    setAppLockEnabled(true);
+    setShowPinModal(false);
+    setNewPin('');
+    Alert.alert('สำเร็จ! 🎉', 'ตั้งค่า PIN 4 หลัก และเปิดใช้งานการล็อกแอปเรียบร้อยแล้ว');
   };
 
   const handleSaveLineToken = async () => {
@@ -505,6 +546,65 @@ export default function ProfileScreen() {
             </View>
           </View>
 
+          {/* Security & Theme Settings */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <MaterialCommunityIcons name="shield-account-outline" size={20} color="#059669" />
+              <Text style={styles.sectionTitle}>ความปลอดภัย & การแสดงผล</Text>
+            </View>
+
+            {/* Dark Mode Card */}
+            <View style={styles.settingCard}>
+              <View style={styles.cardLeft}>
+                <View style={[styles.iconCircle, { backgroundColor: '#312e81' }]}>
+                  <MaterialCommunityIcons name="theme-light-dark" size={20} color="#818cf8" />
+                </View>
+                <View>
+                  <Text style={styles.cardLabel}>โหมดมืด (Dark Mode)</Text>
+                  <Text style={styles.cardSubtitle}>เปลี่ยนธีมแอปเพื่อเปิดใช้งานกลางดึกไม่แสบตา</Text>
+                </View>
+              </View>
+              <Switch
+                value={isDarkMode}
+                onValueChange={toggleDarkMode}
+                trackColor={{ false: '#cbd5e1', true: '#4f46e5' }}
+                thumbColor={'#ffffff'}
+              />
+            </View>
+
+            {/* App Lock Card */}
+            <View style={styles.settingCard}>
+              <View style={styles.cardLeft}>
+                <View style={[styles.iconCircle, { backgroundColor: '#ecfdf5' }]}>
+                  <MaterialCommunityIcons name="lock-check-outline" size={20} color="#059669" />
+                </View>
+                <View>
+                  <Text style={styles.cardLabel}>ล็อกแอป (App Lock)</Text>
+                  <Text style={styles.cardSubtitle}>ถาม PIN 4 หลัก / สแกนนิ้วเมื่อเปิดแอป</Text>
+                </View>
+              </View>
+              <Switch
+                value={appLockEnabled}
+                onValueChange={handleToggleAppLock}
+                trackColor={{ false: '#cbd5e1', true: '#059669' }}
+                thumbColor={'#ffffff'}
+              />
+            </View>
+
+            {appLockEnabled && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginTop: 6 }}
+                onPress={() => setShowPinModal(true)}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <MaterialCommunityIcons name="key-change" size={18} color="#059669" />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เปลี่ยน PIN 4 หลัก</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={18} color="#64748b" />
+              </TouchableOpacity>
+            )}
+          </View>
+
           {/* Emergency Contacts */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -629,6 +729,48 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {/* PIN Setup Modal */}
+      <Modal visible={showPinModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { padding: 24, borderRadius: 20 }]}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={[styles.iconCircle, { width: 56, height: 56, borderRadius: 28, backgroundColor: '#ecfdf5', marginBottom: 10 }]}>
+                <MaterialCommunityIcons name="shield-key" size={28} color="#059669" />
+              </View>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#0f172a' }}>ตั้งค่า PIN 4 หลัก</Text>
+              <Text style={{ fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' }}>
+                กำหนด PIN สำหรับปลดล็อกแอป LookLanCare เพื่อป้องกันข้อมูลผู้สูงอายุ
+              </Text>
+            </View>
+
+            <TextInput
+              style={[styles.input, { fontSize: 24, fontWeight: '900', letterSpacing: 12, textAlign: 'center', marginVertical: 12 }]}
+              keyboardType="number-pad"
+              maxLength={4}
+              secureTextEntry
+              value={newPin}
+              onChangeText={setNewPin}
+              placeholder="••••"
+            />
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+              <TouchableOpacity
+                style={[styles.saveBtn, { flex: 1, backgroundColor: '#f1f5f9' }]}
+                onPress={() => { setShowPinModal(false); setNewPin(''); }}
+              >
+                <Text style={{ color: '#64748b', fontWeight: '700' }}>ยกเลิก</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { flex: 1, backgroundColor: '#059669' }]}
+                onPress={handleSavePin}
+              >
+                <Text style={{ color: '#ffffff', fontWeight: '700' }}>บันทึก PIN</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 

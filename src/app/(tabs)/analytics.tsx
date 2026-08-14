@@ -33,6 +33,7 @@ export default function AnalyticsScreen() {
   const insets = useSafeAreaInsets();
   const [events, setEvents] = useState<FallEvent[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [activeMemberName, setActiveMemberName] = useState('สมาชิกผู้สูงอายุ');
 
   useEffect(() => {
     void loadData();
@@ -44,6 +45,20 @@ export default function AnalyticsScreen() {
       if (data) {
         setEvents(JSON.parse(data));
       }
+
+      const familyId = await AsyncStorage.getItem('familyId');
+      if (familyId) {
+        const { data: membersData } = await supabase
+          .from('family_members')
+          .select('display_name, is_tracked')
+          .eq('family_id', familyId);
+
+        if (membersData && membersData.length > 0) {
+          const tracked = membersData.find(m => m.is_tracked);
+          setActiveMemberName(tracked ? tracked.display_name : membersData[0].display_name);
+        }
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const { data: profile } = await supabase
@@ -109,26 +124,99 @@ export default function AnalyticsScreen() {
 
   const handleShareDoctorReport = async () => {
     try {
-      const dateStr = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
-      const reportMessage = `
-🏥 [รายงานประวัติสุขภาพและการทรงตัวสำหรับแพทย์ - LookLanCare]
-📅 วันที่ออกรายงาน: ${dateStr}
+      const Print = require('expo-print');
+      const Sharing = require('expo-sharing');
+      const dateStr = new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
 
-👤 ข้อมูลสมาชิก: คุณยายสมศรี
-📊 ระดับความเสี่ยงการล้ม: ${riskLevel}
-⚠️ จำนวนเหตุการณ์ล้มสัปดาห์นี้: ${weekTotal} ครั้ง (เหตุการณ์จริง: ${actualFalls} ครั้ง)
-🚶 ค่าเฉลี่ยการเดินเซ (Gait Sway Index): ${avgGaitSway}% (${gaitLevel})
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 30px; color: #1e293b; background: #fff; }
+            .header { text-align: center; border-bottom: 2px solid #059669; padding-bottom: 16px; margin-bottom: 20px; }
+            .logo { font-size: 24px; font-weight: 900; color: #059669; letter-spacing: 2px; }
+            .title { font-size: 15px; font-weight: 700; color: #475569; margin-top: 4px; }
+            .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+            .grid { display: flex; justify-content: space-between; margin-bottom: 6px; }
+            .label { font-weight: 700; color: #64748b; font-size: 13px; }
+            .val { font-weight: 800; color: #0f172a; font-size: 13px; }
+            .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 800; }
+            .badge-safe { background: #dcfce7; color: #15803d; }
+            .badge-warn { background: #fef9c3; color: #a16207; }
+            .badge-danger { background: #fee2e2; color: #b91c1c; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 18px; }
+            th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: center; font-size: 12px; }
+            th { background: #f1f5f9; color: #475569; font-weight: 700; }
+            .section-title { font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 8px; border-left: 4px solid #059669; padding-left: 8px; }
+            .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo">LOOKLANCARE (LLC)</div>
+            <div class="title">รายงานประวัติความเสี่ยงการล้มและการทรงตัวสำหรับแพทย์</div>
+          </div>
 
-💡 ข้อแนะนำจากระบบวิเคราะห์ AI:
-${weekTotal === 0 ? 'สภาพร่างกายและการทรงตัวเสถียรดี ไม่พบเหตุการณ์ล้มสัปดาห์นี้' : 'พบแนวโน้มความเสี่ยงล้ม ควรตรวจเช็กการทรงตัว (Timed Up and Go Test) และยารักษาโรคประจำตัว'}
+          <div class="meta-box">
+            <div class="grid"><span class="label">ชื่อสมาชิกผู้สูงอายุ:</span> <span class="val">${activeMemberName}</span></div>
+            <div class="grid"><span class="label">วันที่ออกรายงาน:</span> <span class="val">${dateStr}</span></div>
+            <div class="grid">
+              <span class="label">ระดับความเสี่ยง:</span> 
+              <span class="badge ${weekTotal === 0 ? 'badge-safe' : weekTotal <= 2 ? 'badge-warn' : 'badge-danger'}">${riskLevel}</span>
+            </div>
+          </div>
 
-เปิดดูในแอป LookLanCare เพื่อดูรายละเอียดเพิ่มเติม
-      `.trim();
+          <div class="section-title">📊 สรุปดัชนีทางกายภาพ 7 วันย้อนหลัง</div>
+          <table>
+            <thead>
+              <tr>
+                <th>วัน</th>
+                <th>เหตุการณ์ล้ม</th>
+                <th>Gait Sway Index</th>
+                <th>การเดินเซ</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${weeklyData.map((d, idx) => `
+                <tr>
+                  <td>${d.label}</td>
+                  <td>${d.count} ครั้ง</td>
+                  <td>${gaitData[idx]}%</td>
+                  <td>${gaitData[idx] < 20 ? 'ปกติ' : gaitData[idx] < 40 ? 'เซเล็กน้อย' : 'เซมาก'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
 
-      await Share.share({
-        message: reportMessage,
-        title: 'รายงานสุขภาพผู้สูงอายุสำหรับแพทย์',
-      });
+          <div class="section-title">🚶 ค่าเฉลี่ยการเดินเซ (Gait Sway Index)</div>
+          <div class="meta-box">
+            <div class="grid"><span class="label">ค่าเฉลี่ยสัปดาห์นี้:</span> <span class="val">${avgGaitSway}% (${gaitLevel})</span></div>
+            <div class="grid"><span class="label">จำนวนเหตุการณ์ล้มจริง:</span> <span class="val">${actualFalls} ครั้ง</span></div>
+          </div>
+
+          <div class="section-title">💡 การประเมินและข้อแนะนำทางการแพทย์ (AI Analysis)</div>
+          <div class="meta-box" style="background: #f0fdf4; border-color: #bbf7d0;">
+            <p style="margin: 0; font-size: 12px; color: #047857; line-height: 1.5;">
+              ${weekTotal === 0 ? 'ผู้สูงอายุทรงตัวได้เสถียรดีมาก ไม่พบประวัติการล้มสัปดาห์นี้ ควรส่งเสริมให้เดินออกกำลังกายยามเช้าอย่างสม่ำเสมอ' : weekTotal <= 2 ? 'พบประวัติการล้มหรือการเสียหลักเล็กน้อย ควรตรวจเช็กระบบสายตา ข้อต่อ และปรับปรุงสภาพแวดล้อมภายในบ้าน' : 'พบประวัติการล้มหลายครั้งในสัปดาห์นี้ มีความเสี่ยงสูง แนะนำให้แพทย์ตรวจ assessment ทรงตัว Timed Up and Go (TUG) test และทบทวนยารักษาโรคประจำตัว'}
+            </p>
+          </div>
+
+          <div class="footer">
+            รายงานฉบับนี้สร้างโดยอัตโนมัติจากระบบ LookLanCare AI Fall Detection System<br/>
+            ออกรายงานเมื่อ: ${new Date().toLocaleString('th-TH')}
+          </div>
+        </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'ส่งรายงานให้แพทย์ (PDF)' });
+      } else {
+        Alert.alert('สำเร็จ', `สร้างไฟล์ PDF เรียบร้อยแล้วที่: ${uri}`);
+      }
     } catch (e: any) {
       Alert.alert('เกิดข้อผิดพลาด', e.message);
     }
@@ -139,7 +227,7 @@ ${weekTotal === 0 ? 'สภาพร่างกายและการทร�
       const shareMessage = `
 🏡 [รายงานสรุปความปลอดภัยประจำสัปดาห์ - ครอบครัวสุขสันต์]
 
-🟢 สถานะรวม: สัปดาห์นี้สุขภาพของคุณยายสมศรีอยู่ในระดับ "${riskLevel}"
+🟢 สถานะรวม: สัปดาห์นี้สุขภาพของ${activeMemberName}อยู่ในระดับ "${riskLevel}"
 - จำนวนครั้งที่ล้ม: ${weekTotal} ครั้ง
 - ดัชนีการเดินเซ (Gait Sway): ${avgGaitSway}% (${gaitLevel})
 - ระบบ AI Kinematics เฝ้าระวัง: ทำงานปกติ 24 ชั่วโมง

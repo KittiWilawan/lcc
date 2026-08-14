@@ -70,7 +70,7 @@ export async function sendLocalFallNotification(params: {
     const Notifications = getNotificationsModule();
     if (!Notifications || typeof Notifications.scheduleNotificationAsync !== 'function') return;
 
-    const person = params.personName || 'คุณยายสมศรี';
+    const person = params.personName || 'สมาชิกผู้สูงอายุ';
     const location = params.cameraName || 'กล้องวงจรปิด';
     const duration = params.groundDuration || 1.5;
 

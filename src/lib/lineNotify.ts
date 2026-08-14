@@ -93,7 +93,7 @@ export async function sendFallEventLineAlert(params: {
   const formattedMessage = `
 🚨 [LLC Emergency Alert] ตรวจพบการล้ม!
 
-👤 ผู้สูงอายุ: ${params.personName || 'คุณยายสมศรี'}
+👤 ผู้สูงอายุ: ${params.personName || 'สมาชิกผู้สูงอายุ'}
 📍 ตำแหน่ง: ${params.cameraName || 'กล้องวงจรปิด'}
 ⏰ เวลา: ${timeStr} น. (${dateStr})
 📐 มุมลำตัว: ${params.torsoAngle || 18}°

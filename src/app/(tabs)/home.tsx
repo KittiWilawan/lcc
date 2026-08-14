@@ -78,6 +78,8 @@ export default function DashboardScreen() {
       if (data) {
         setCameras(JSON.parse(data));
       } else {
+        const firstMemberName = members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
+        const secondMemberName = members[1]?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
         // Default cameras including IP Camera / RTSP stream
         const defaultCam: CameraItem = {
           id: '1',
@@ -85,7 +87,7 @@ export default function DashboardScreen() {
           type: 'rtsp',
           url: 'rtsp://admin:123456@192.168.1.108:554/live/ch0',
           protocol: 'rtsp',
-          assigned_member_name: 'คุณยายสมศรี',
+          assigned_member_name: firstMemberName,
         };
         const defaultCam2: CameraItem = {
           id: '2',
@@ -93,7 +95,7 @@ export default function DashboardScreen() {
           type: 'video',
           url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
           protocol: 'mp4',
-          assigned_member_name: 'คุณตาต้อย',
+          assigned_member_name: secondMemberName,
         };
         setCameras([defaultCam, defaultCam2]);
         await AsyncStorage.setItem('@family_cameras', JSON.stringify([defaultCam, defaultCam2]));
@@ -125,6 +127,7 @@ export default function DashboardScreen() {
     }
 
     const assignedMember = members.find((m) => m.id === assignedMemberId);
+    const defaultMemberName = members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
 
     const newCam: CameraItem = {
       id: Date.now().toString(),
@@ -133,7 +136,7 @@ export default function DashboardScreen() {
       url: (newCamType === 'video' || newCamType === 'rtsp') ? newCamUrl : undefined,
       protocol,
       assigned_member_id: assignedMemberId || undefined,
-      assigned_member_name: assignedMember ? assignedMember.display_name : 'คุณยายสมศรี',
+      assigned_member_name: assignedMember ? assignedMember.display_name : defaultMemberName,
     };
 
     const updated = [...cameras, newCam];
@@ -252,10 +255,12 @@ export default function DashboardScreen() {
       ...prev
     ]);
 
+    const currentActivePerson = members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
+
     // Send OS Lock Screen Push Notification & LINE Notification
     void sendLocalSOSNotification();
     void sendFallEventLineAlert({
-      personName: members.find(m => m.is_tracked)?.display_name || 'คุณยายสมศรี',
+      personName: currentActivePerson,
       cameraName: 'ปุ่มฉุกเฉินบนแอป Dashboard',
       groundDuration: 1.5,
       torsoAngle: 12,
@@ -283,7 +288,7 @@ export default function DashboardScreen() {
       ...events
     ]);
 
-    const targetPerson = personName || members.find(m => m.is_tracked)?.display_name || 'คุณยายสมศรี';
+    const targetPerson = personName || members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
     const targetCam = camName || 'กล้องวงจรปิด';
 
     // Send OS Lock Screen Push Notification & LINE Notification
@@ -498,7 +503,7 @@ export default function DashboardScreen() {
 
                     {/* AI Vision Person & Fall Overlay */}
                     <AICameraOverlay
-                      personName={cam.assigned_member_name || members.find(m => m.is_tracked)?.display_name || "คุณยายสมศรี"}
+                      personName={cam.assigned_member_name || members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || "สมาชิกผู้สูงอายุ"}
                       initialPosture="standing"
                       isMonitored={members.length === 0 || members.some(m => m.is_tracked)}
                       onFallDetected={() => {

@@ -24,7 +24,7 @@ interface AICameraOverlayProps {
 }
 
 export default React.memo(function AICameraOverlay({
-  personName = 'คุณยายสมศรี',
+  personName = 'สมาชิกผู้สูงอายุ',
   initialPosture = 'standing',
   initialPersonDetected = true,
   onFallDetected,
