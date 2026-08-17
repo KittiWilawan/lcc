@@ -502,19 +502,31 @@ export function parseStreamUrl(url: string): {
 } {
   if (!url) return { protocol: 'unknown', isLiveStream: false, displayUrl: '' };
 
-  const trimmed = url.trim().toLowerCase();
-  if (trimmed.startsWith('rtsp://')) {
-    return { protocol: 'rtsp', isLiveStream: true, displayUrl: url };
-  } else if (trimmed.startsWith('rtmp://')) {
-    return { protocol: 'rtmp', isLiveStream: true, displayUrl: url };
-  } else if (trimmed.includes('.m3u8') || trimmed.startsWith('hls://')) {
-    return { protocol: 'hls', isLiveStream: true, displayUrl: url };
-  } else if (trimmed.endsWith('.mp4') || trimmed.includes('.mp4?')) {
-    return { protocol: 'mp4', isLiveStream: false, displayUrl: url };
+  const trimmed = url.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower.startsWith('rtsp://')) {
+    return { protocol: 'rtsp', isLiveStream: true, displayUrl: trimmed };
+  } else if (lower.startsWith('rtmp://')) {
+    return { protocol: 'rtmp', isLiveStream: true, displayUrl: trimmed };
+  } else if (lower.includes('.m3u8') || lower.startsWith('hls://') || lower.startsWith('http://') && lower.includes('/live')) {
+    return { protocol: 'hls', isLiveStream: true, displayUrl: trimmed };
+  } else if (lower.endsWith('.mp4') || lower.includes('.mp4?')) {
+    return { protocol: 'mp4', isLiveStream: false, displayUrl: trimmed };
   }
 
-  return { protocol: 'unknown', isLiveStream: true, displayUrl: url };
+  return { protocol: 'unknown', isLiveStream: true, displayUrl: trimmed };
 }
+
+/**
+ * RTSP-to-HLS URL Converter Helper for Local IP Camera Gateways
+ */
+export function convertRTSPToHLS(rtspUrl: string, gatewayIp: string = 'localhost:8083'): string {
+  if (!rtspUrl || !rtspUrl.startsWith('rtsp://')) return rtspUrl;
+  const encoded = encodeURIComponent(rtspUrl);
+  return `http://${gatewayIp}/stream/live.m3u8?url=${encoded}`;
+}
+
 
 /**
  * Zero-Asset Emergency Siren Synthesizer using Web Audio API

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { CameraView } from 'expo-camera';
+import { RealStreamPlayer } from './RealStreamPlayer';
 import AICameraOverlay from './AICameraOverlay';
 import { parseStreamUrl } from '../lib/realAIEngine';
 
@@ -53,16 +53,11 @@ export const FullScreenCameraModal = React.memo(function FullScreenCameraModal({
       <StatusBar hidden />
       <View style={styles.container}>
         {/* Fullscreen Video/Camera Feed */}
-        {camera.type === 'device' ? (
-          <CameraView style={styles.fullFeed} facing="back" />
-        ) : (
-          <Image
-            source={{ uri: camera.url || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4' }}
-            style={styles.fullFeed}
-            contentFit="cover"
-            autoplay
-          />
-        )}
+        <RealStreamPlayer
+          type={camera.type}
+          url={camera.url}
+          style={styles.fullFeed}
+        />
 
         {/* Real AI Vision Overlay */}
         <AICameraOverlay personName={camera.assigned_member_name || camera.name} initialPosture="standing" />

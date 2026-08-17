@@ -8,6 +8,7 @@ import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AICameraOverlay from '../components/AICameraOverlay';
 import { FullScreenCameraModal } from '../components/FullScreenCameraModal';
+import { RealStreamPlayer } from '../components/RealStreamPlayer';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_GAP = 16;
@@ -93,16 +94,11 @@ export default function AllCamerasScreen() {
             {cameras.map(cam => (
               <View key={cam.id} style={styles.gridCard}>
                 <View style={styles.gridCameraView}>
-                  {cam.type === 'video' && cam.url ? (
-                    <Image
-                      source={{ uri: cam.url }}
-                      style={styles.gridVideo}
-                      contentFit="cover"
-                      autoplay
-                    />
-                  ) : (
-                    <CameraView style={styles.gridVideo} facing="back" />
-                  )}
+                  <RealStreamPlayer
+                    type={cam.type}
+                    url={cam.url}
+                    style={styles.gridVideo}
+                  />
 
                   {/* AI Vision Person & Fall Overlay */}
                   <AICameraOverlay

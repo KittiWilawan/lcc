@@ -13,6 +13,7 @@ import {
   KeyPoint,
   playEmergencySiren,
 } from '../lib/realAIEngine';
+import { sendLocalFallNotification } from '../lib/pushNotifications';
 
 interface AICameraOverlayProps {
   personName?: string;
@@ -48,6 +49,7 @@ export default React.memo(function AICameraOverlay({
   const triggerFallAlert = useCallback(() => {
     setShowFallAlert(true);
     playEmergencySiren(isMuted);
+    void sendLocalFallNotification({ personName });
     Animated.sequence([
       Animated.timing(fallAlertAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
       Animated.delay(3000),
@@ -55,7 +57,7 @@ export default React.memo(function AICameraOverlay({
     ]).start(() => {
       setShowFallAlert(false);
     });
-  }, [fallAlertAnim, isMuted]);
+  }, [fallAlertAnim, isMuted, personName]);
 
   // Frame processing loop optimized for high performance & 0 lag (5 FPS UI tick)
   useEffect(() => {

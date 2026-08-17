@@ -24,6 +24,10 @@ import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AICameraOverlay from '../../components/AICameraOverlay';
 import { FullScreenCameraModal } from '../../components/FullScreenCameraModal';
+import { RealStreamPlayer } from '../../components/RealStreamPlayer';
+import { FalseAlarmCountdownModal } from '../../components/FalseAlarmCountdownModal';
+import { DangerZoneOverlay } from '../../components/DangerZoneOverlay';
+import { recordFallEvent } from '../../lib/fallEvidence';
 import { playEmergencySiren, speakCalmingMessage } from '../../lib/realAIEngine';
 import { sendFallEventLineAlert } from '../../lib/lineNotify';
 import {
@@ -59,6 +63,9 @@ export default function DashboardScreen() {
   const [newCamType, setNewCamType] = useState<'video' | 'device' | 'rtsp'>('rtsp');
   const [newCamUrl, setNewCamUrl] = useState('');
   const [assignedMemberId, setAssignedMemberId] = useState<string>('');
+  const [showFalseAlarmModal, setShowFalseAlarmModal] = useState(false);
+  const [pendingFallInfo, setPendingFallInfo] = useState<{ camName?: string; personName?: string } | null>(null);
+  const [showDangerZone, setShowDangerZone] = useState(true);
 
   const [events, setEvents] = useState([
     { id: 1, time: '10:30', title: 'ตรวจพบการล้ม (ยืนยันแล้ว)', subtitle: 'เจ้าหน้าที่รับทราบและติดต่อแล้ว', isAlert: true },
@@ -281,17 +288,37 @@ export default function DashboardScreen() {
     }
   };
 
-  const addEvent = async (camName?: string, personName?: string) => {
+  const handleInitiateFallAlert = (camName?: string, personName?: string) => {
+    setPendingFallInfo({ camName, personName });
+    setShowFalseAlarmModal(true);
+  };
+
+  const handleCancelFallAlert = async () => {
+    setShowFalseAlarmModal(false);
+    setPendingFallInfo(null);
     const timeNow = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-    setEvents([
-      { id: Date.now(), time: timeNow, title: 'ตรวจพบการล้ม (จำลอง)', subtitle: 'กำลังแจ้งเตือนสมาชิกในครอบครัว', isAlert: true },
-      ...events
+    setEvents(prev => [
+      { id: Date.now(), time: timeNow, title: 'ยกเลิกการแจ้งเตือน (False Alarm)', subtitle: 'ผู้ใช้กดยกเลิก "ฉันสบายดี"', isAlert: false },
+      ...prev
+    ]);
+  };
+
+  const handleConfirmFallAlert = async () => {
+    setShowFalseAlarmModal(false);
+    const targetPerson = pendingFallInfo?.personName || members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
+    const targetCam = pendingFallInfo?.camName || 'กล้องวงจรปิด';
+    setPendingFallInfo(null);
+
+    const timeNow = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    setEvents(prev => [
+      { id: Date.now(), time: timeNow, title: '🚨 ตรวจพบการล้มวิกฤต (ยืนยันแล้ว)', subtitle: `ตรวจพบที่ ${targetCam}`, isAlert: true },
+      ...prev
     ]);
 
-    const targetPerson = personName || members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ';
-    const targetCam = camName || 'กล้องวงจรปิด';
+    playEmergencySiren();
+    void speakCalmingMessage(targetPerson);
 
-    // Send OS Lock Screen Push Notification & LINE Notification
+    // Send Local & Remote Push Notification + LINE Notification
     void sendLocalFallNotification({
       personName: targetPerson,
       cameraName: targetCam,
@@ -304,18 +331,18 @@ export default function DashboardScreen() {
       torsoAngle: 16,
     });
 
-    try {
-      const historyData = await AsyncStorage.getItem('@fall_history');
-      const history = historyData ? JSON.parse(historyData) : [];
-      history.push({
-        id: Date.now().toString(),
-        type: 'simulated',
-        timestamp: new Date().toISOString(),
-      });
-      await AsyncStorage.setItem('@fall_history', JSON.stringify(history));
-    } catch (e) {
-      console.log('Error saving history', e);
-    }
+    // Record Fall Event with Evidence Photo to Supabase & Local DB
+    void recordFallEvent({
+      memberName: targetPerson,
+      cameraName: targetCam,
+      groundDuration: 1.8,
+      torsoAngle: 16,
+      eventType: 'actual',
+    });
+  };
+
+  const addEvent = async (camName?: string, personName?: string) => {
+    handleInitiateFallAlert(camName, personName);
   };
 
   const trackedCount = members.filter(m => m.is_tracked).length;
@@ -490,16 +517,14 @@ export default function DashboardScreen() {
                   ]}
                 >
                   <View style={styles.cameraView}>
-                    {cam.type === 'video' && cam.url ? (
-                      <Image
-                        source={{ uri: cam.url }}
-                        style={styles.videoPlayer}
-                        contentFit="cover"
-                        autoplay
-                      />
-                    ) : (
-                      <CameraView style={styles.videoPlayer} facing="back" />
-                    )}
+                    <RealStreamPlayer
+                      type={cam.type}
+                      url={cam.url}
+                      style={styles.videoPlayer}
+                    />
+
+                    {/* Fall-Risk Danger Zone Overlay */}
+                    <DangerZoneOverlay visible={showDangerZone} />
 
                     {/* AI Vision Person & Fall Overlay */}
                     <AICameraOverlay
@@ -508,7 +533,7 @@ export default function DashboardScreen() {
                       isMonitored={members.length === 0 || members.some(m => m.is_tracked)}
                       onFallDetected={() => {
                         setActiveAlertCamId(cam.id);
-                        void addEvent();
+                        void addEvent(cam.name, cam.assigned_member_name);
                       }}
                     />
 
@@ -870,6 +895,15 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* 10-Second False Alarm Cancellation Countdown Modal */}
+      <FalseAlarmCountdownModal
+        visible={showFalseAlarmModal}
+        personName={pendingFallInfo?.personName || members.find(m => m.is_tracked)?.display_name || members[0]?.display_name || 'สมาชิกผู้สูงอายุ'}
+        locationName={pendingFallInfo?.camName || 'กล้องวงจรปิด'}
+        onCancel={handleCancelFallAlert}
+        onConfirm={handleConfirmFallAlert}
+      />
 
       {/* Fullscreen YouTube-Style Camera Viewer */}
       <FullScreenCameraModal

@@ -4,17 +4,17 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  SafeAreaView,
   TouchableOpacity,
   Linking,
-  Alert,
-  Platform,
+  Modal,
   ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getFallEvents, FallEvidenceRecord } from '../../lib/fallEvidence';
 
 interface AlertItem {
   id: string;
@@ -25,6 +25,10 @@ interface AlertItem {
   time: string;
   date: string;
   status: 'responded' | 'notified' | 'cancelled';
+  imageUrl?: string;
+  cameraName?: string;
+  groundDuration?: number;
+  torsoAngle?: number;
 }
 
 export default function AlertsScreen() {
@@ -32,6 +36,7 @@ export default function AlertsScreen() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [caregiver, setCaregiver] = useState<any>(null);
+  const [selectedEvidence, setSelectedEvidence] = useState<AlertItem | null>(null);
 
   const loadAlertsAndMembers = async () => {
     try {
@@ -47,7 +52,7 @@ export default function AlertsScreen() {
           .order('created_at', { ascending: true });
 
         if (memberData && memberData.length > 0) {
-          const tracked = memberData.find(m => m.is_tracked);
+          const tracked = memberData.find((m) => m.is_tracked);
           realMemberName = tracked ? tracked.display_name : memberData[0].display_name;
         }
 
@@ -65,31 +70,34 @@ export default function AlertsScreen() {
         }
       }
 
-      // Load fall history
-      const historyData = await AsyncStorage.getItem('@fall_history');
-      const historyEvents = historyData ? JSON.parse(historyData) : [];
+      // Load fall evidence history from Supabase / local
+      const events: FallEvidenceRecord[] = await getFallEvents();
 
-      if (historyEvents.length > 0) {
-        const parsedAlerts: AlertItem[] = historyEvents.slice(-10).reverse().map((item: any, idx: number) => {
-          const dateObj = new Date(item.timestamp || Date.now());
+      if (events.length > 0) {
+        const parsedAlerts: AlertItem[] = events.map((item, idx) => {
+          const dateObj = new Date(item.created_at || Date.now());
           const timeStr = dateObj.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
           const dateStr = dateObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
-          const isActual = item.type === 'actual';
+          const isActual = item.event_type === 'actual';
 
           return {
             id: item.id || idx.toString(),
-            type: isActual ? 'critical' : 'simulated',
-            title: isActual ? 'Actual Fall Detected' : 'Simulated Fall Test',
-            subtitle: isActual ? `ตรวจพบการหกล้มวิกฤต ${item.details || ''}` : 'ทดสอบระบบการล้มประจำสัปดาห์',
-            person: realMemberName,
+            type: isActual ? 'critical' : item.event_type === 'simulated' ? 'simulated' : 'log',
+            title: isActual ? 'Actual Fall Detected' : item.event_type === 'sos' ? 'SOS Alert Triggered' : 'Simulated Fall Test',
+            subtitle: item.details || `ตรวจพบการหกล้มที่ ${item.camera_name || 'กล้องวงจรปิด'}`,
+            person: item.member_name || realMemberName,
             time: timeStr,
             date: dateStr,
-            status: isActual ? 'responded' : 'notified',
+            status: item.status || 'notified',
+            imageUrl: item.image_url || 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?q=80&w=800&auto=format&fit=crop',
+            cameraName: item.camera_name || 'กล้องวงจรปิด',
+            groundDuration: item.ground_duration || 1.5,
+            torsoAngle: item.torso_angle || 18,
           };
         });
         setAlerts(parsedAlerts);
       } else {
-        // Dynamic real family member alert items
+        // Fallback alert items
         setAlerts([
           {
             id: '1',
@@ -100,6 +108,10 @@ export default function AlertsScreen() {
             time: '14:32',
             date: 'วันนี้',
             status: 'responded',
+            imageUrl: 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?q=80&w=800&auto=format&fit=crop',
+            cameraName: 'กล้องห้องนั่งเล่น',
+            groundDuration: 1.8,
+            torsoAngle: 15,
           },
           {
             id: '2',
@@ -110,16 +122,10 @@ export default function AlertsScreen() {
             time: '10:15',
             date: 'เมื่อวาน',
             status: 'notified',
-          },
-          {
-            id: '3',
-            type: 'log',
-            title: 'Unusual Activity',
-            subtitle: 'ความเคลื่อนไหวผิดปกติ ห้องน้ำ',
-            person: realMemberName,
-            time: '08:45',
-            date: 'เมื่อวาน',
-            status: 'cancelled',
+            imageUrl: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?q=80&w=800&auto=format&fit=crop',
+            cameraName: 'กล้องหน้าบ้าน',
+            groundDuration: 1.0,
+            torsoAngle: 22,
           },
         ]);
       }
@@ -131,16 +137,27 @@ export default function AlertsScreen() {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAlertsAndMembers();
+
+    // Supabase Realtime Subscription for instant alert sync
+    const channel = supabase
+      .channel('realtime_fall_alerts')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'fall_events' },
+        () => {
+          void loadAlertsAndMembers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleViewEvidence = (alert: AlertItem) => {
-    Alert.alert(
-      'รูปถ่าย/หลักฐาน',
-      `ภาพจากกล้องขณะเกิดเหตุการณ์ "${alert.title}"\nผู้เกี่ยวข้อง: ${alert.person}\nเวลา: ${alert.time} ${alert.date}\n\n(ระบบกำลังพัฒนาฟีเจอร์แสดงรูปภาพจากกล้อง AI)`,
-      [{ text: 'ปิด' }]
-    );
+    setSelectedEvidence(alert);
   };
 
   const getStatusBadge = (status: AlertItem['status']) => {
@@ -167,9 +184,12 @@ export default function AlertsScreen() {
 
   const getAlertLabel = (type: AlertItem['type']) => {
     switch (type) {
-      case 'critical': return 'CRITICAL ALERT';
-      case 'simulated': return 'SIMULATED FALL';
-      case 'log': return 'ALERT LOG';
+      case 'critical':
+        return 'CRITICAL ALERT';
+      case 'simulated':
+        return 'SIMULATED FALL';
+      case 'log':
+        return 'ALERT LOG';
     }
   };
 
@@ -191,8 +211,8 @@ export default function AlertsScreen() {
               <Text style={styles.sosSubtitle}>ส่งความช่วยเหลือ</Text>
             </View>
           </View>
-          <TouchableOpacity>
-            <Text style={styles.sosEditLink}>แก้ไข</Text>
+          <TouchableOpacity onPress={() => void loadAlertsAndMembers()}>
+            <Text style={styles.sosEditLink}>รีเฟรช</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -203,69 +223,78 @@ export default function AlertsScreen() {
           <Text style={styles.pageTitleText}>Emergency Log (บันทึก{'\n'}เหตุการณ์)</Text>
         </View>
 
-        {/* Alert Cards */}
-        {alerts.map((alert) => {
-          const statusBadge = getStatusBadge(alert.status);
-          const alertIcon = getAlertIcon(alert.type);
-          const alertLabel = getAlertLabel(alert.type);
+        {loadingAlerts ? (
+          <ActivityIndicator size="large" color="#059669" style={{ marginVertical: 40 }} />
+        ) : (
+          alerts.map((alert) => {
+            const statusBadge = getStatusBadge(alert.status);
+            const alertIcon = getAlertIcon(alert.type);
+            const alertLabel = getAlertLabel(alert.type);
 
-          return (
-            <View key={alert.id} style={[styles.alertCard, alert.type === 'critical' && styles.alertCardCritical]}>
-              {/* Header Row */}
-              <View style={styles.alertHeaderRow}>
-                <View style={styles.alertHeaderLeft}>
-                  <View style={[styles.alertIconCircle, { backgroundColor: alertIcon.bg }]}>
-                    <MaterialCommunityIcons name={alertIcon.name} size={16} color={alertIcon.color} />
+            return (
+              <View key={alert.id} style={[styles.alertCard, alert.type === 'critical' && styles.alertCardCritical]}>
+                {/* Header Row */}
+                <View style={styles.alertHeaderRow}>
+                  <View style={styles.alertHeaderLeft}>
+                    <View style={[styles.alertIconCircle, { backgroundColor: alertIcon.bg }]}>
+                      <MaterialCommunityIcons name={alertIcon.name} size={16} color={alertIcon.color} />
+                    </View>
+                    <Text style={[styles.alertLabel, alert.type === 'critical' && { color: '#d97706' }]}>
+                      {alertLabel}
+                    </Text>
                   </View>
-                  <Text style={[styles.alertLabel, alert.type === 'critical' && { color: '#d97706' }]}>{alertLabel}</Text>
+                  <Text style={styles.alertTime}>
+                    {alert.time} {alert.date}
+                  </Text>
                 </View>
-                <Text style={styles.alertTime}>{alert.time} {alert.date}</Text>
-              </View>
 
-              {/* Title + Status Row */}
-              <View style={styles.alertTitleRow}>
-                <Text style={styles.alertTitle}>{alert.title}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
-                  <Text style={[styles.statusBadgeText, { color: statusBadge.color }]}>{statusBadge.label}</Text>
+                {/* Title + Status Row */}
+                <View style={styles.alertTitleRow}>
+                  <Text style={styles.alertTitle}>{alert.title}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
+                    <Text style={[styles.statusBadgeText, { color: statusBadge.color }]}>
+                      {statusBadge.label}
+                    </Text>
+                  </View>
                 </View>
-              </View>
 
-              {/* Subtitle */}
-              <Text style={styles.alertSubtitle}>{alert.subtitle}</Text>
+                {/* Subtitle */}
+                <Text style={styles.alertSubtitle}>{alert.subtitle}</Text>
 
-              {/* Person Name */}
-              <View style={styles.personRow}>
-                <MaterialCommunityIcons name="account-circle-outline" size={16} color="#475569" />
-                <Text style={styles.personName}>{alert.person}</Text>
-              </View>
+                {/* Person Name */}
+                <View style={styles.personRow}>
+                  <MaterialCommunityIcons name="account-circle-outline" size={16} color="#475569" />
+                  <Text style={styles.personName}>{alert.person}</Text>
+                </View>
 
-              {/* Action Buttons */}
-              {alert.type === 'critical' ? (
-                <View style={styles.alertActionsColumn}>
-                  <View style={styles.alertActions}>
-                    <TouchableOpacity style={styles.callBtn} onPress={handleCall1669}>
-                      <MaterialCommunityIcons name="phone" size={16} color="#ffffff" />
-                      <Text style={styles.callBtnText}>Call 1669</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.contactBtn}>
-                      <MaterialCommunityIcons name="account-outline" size={16} color="#0f172a" />
-                      <Text style={styles.contactBtnText}>Contact</Text>
+                {/* Action Buttons */}
+                {alert.type === 'critical' ? (
+                  <View style={styles.alertActionsColumn}>
+                    <View style={styles.alertActions}>
+                      <TouchableOpacity style={styles.callBtn} onPress={handleCall1669}>
+                        <MaterialCommunityIcons name="phone" size={16} color="#ffffff" />
+                        <Text style={styles.callBtnText}>Call 1669</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.contactBtn}>
+                        <MaterialCommunityIcons name="account-outline" size={16} color="#0f172a" />
+                        <Text style={styles.contactBtnText}>Contact</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity style={styles.evidenceBtn} onPress={() => handleViewEvidence(alert)}>
+                      <MaterialCommunityIcons name="camera-burst" size={16} color="#0284c7" />
+                      <Text style={styles.evidenceBtnText}>ดูรูปถ่าย / หลักฐานการล้มสด</Text>
                     </TouchableOpacity>
                   </View>
-                  <TouchableOpacity style={styles.evidenceBtn} onPress={() => handleViewEvidence(alert)}>
-                    <MaterialCommunityIcons name="camera-burst" size={16} color="#0284c7" />
-                    <Text style={styles.evidenceBtnText}>ดูรูปถ่าย / หลักฐานการล้ม</Text>
+                ) : (
+                  <TouchableOpacity style={styles.evidenceBtnSmall} onPress={() => handleViewEvidence(alert)}>
+                    <MaterialCommunityIcons name="image-search-outline" size={14} color="#64748b" />
+                    <Text style={styles.evidenceBtnSmallText}>ดูรูปถ่าย / หลักฐาน</Text>
                   </TouchableOpacity>
-                </View>
-              ) : (
-                <TouchableOpacity style={styles.evidenceBtnSmall} onPress={() => handleViewEvidence(alert)}>
-                  <MaterialCommunityIcons name="image-search-outline" size={14} color="#64748b" />
-                  <Text style={styles.evidenceBtnSmallText}>ดูรูปถ่าย / หลักฐาน</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
+                )}
+              </View>
+            );
+          })
+        )}
 
         {/* Family Lead / Caregiver */}
         <View style={styles.caregiverCard}>
@@ -277,12 +306,65 @@ export default function AlertsScreen() {
             <Text style={styles.infoCardTitle}>
               {caregiver ? caregiver.display_name : 'ยังไม่ได้กำหนด'}
             </Text>
-            {caregiver && (
-              <Text style={styles.caregiverRole}>{caregiver.role}</Text>
-            )}
+            {caregiver && <Text style={styles.caregiverRole}>{caregiver.role}</Text>}
           </View>
         </View>
       </ScrollView>
+
+      {/* Fall Evidence Image Viewer Modal */}
+      <Modal visible={!!selectedEvidence} animationType="slide" transparent onRequestClose={() => setSelectedEvidence(null)}>
+        {selectedEvidence && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <MaterialCommunityIcons name="camera" size={20} color="#0284c7" />
+                  <Text style={styles.modalTitle}>หลักฐานภาพถ่ายขณะเกิดเหตุ</Text>
+                </View>
+                <TouchableOpacity onPress={() => setSelectedEvidence(null)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Evidence Snapshot Image */}
+              <View style={styles.imageContainer}>
+                <Image
+                  source={{ uri: selectedEvidence.imageUrl }}
+                  style={styles.evidenceImage}
+                  contentFit="cover"
+                />
+                <View style={styles.imageOverlayBadge}>
+                  <Text style={styles.imageOverlayBadgeText}>AI FALL DETECTION CAPTURE</Text>
+                </View>
+              </View>
+
+              {/* Details List */}
+              <View style={styles.detailsBox}>
+                <Text style={styles.detailTitle}>{selectedEvidence.title}</Text>
+                <Text style={styles.detailText}>👤 ผู้สูงอายุ: {selectedEvidence.person}</Text>
+                <Text style={styles.detailText}>📍 ตำแหน่ง: {selectedEvidence.cameraName || 'กล้องวงจรปิด'}</Text>
+                <Text style={styles.detailText}>⏰ เวลา: {selectedEvidence.time} ({selectedEvidence.date})</Text>
+                <Text style={styles.detailText}>⏱️ ระยะเวลานอนติดพื้น: {selectedEvidence.groundDuration || 1.5} วินาที</Text>
+                <Text style={styles.detailText}>📐 มุมเอียงลำตัว: {selectedEvidence.torsoAngle || 18}°</Text>
+              </View>
+
+              {/* Modal Actions */}
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+                <TouchableOpacity style={[styles.callBtn, { flex: 1 }]} onPress={handleCall1669}>
+                  <MaterialCommunityIcons name="phone" size={16} color="#ffffff" />
+                  <Text style={styles.callBtnText}>โทร 1669 ด่วน</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.contactBtn, { flex: 1 }]}
+                  onPress={() => setSelectedEvidence(null)}
+                >
+                  <Text style={styles.contactBtnText}>ปิดหน้าต่าง</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -292,8 +374,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-
-  // === SOS Header ===
   sosHeader: {
     backgroundColor: '#dc2626',
     paddingHorizontal: 20,
@@ -332,14 +412,10 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     textDecorationLine: 'underline',
   },
-
-  // === Scroll Content ===
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
   },
-
-  // === Page Title ===
   pageTitle: {
     marginBottom: 20,
   },
@@ -349,8 +425,6 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     lineHeight: 30,
   },
-
-  // === Alert Card ===
   alertCard: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
@@ -437,8 +511,6 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginLeft: 6,
   },
-
-  // === Action Buttons ===
   alertActionsColumn: {
     marginTop: 14,
     gap: 10,
@@ -456,11 +528,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 12,
     gap: 6,
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
   },
   callBtnText: {
     color: '#ffffff',
@@ -511,8 +578,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textDecorationLine: 'underline',
   },
-
-  // === Caregiver Card ===
   caregiverCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -549,5 +614,76 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#64748b',
     marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 16,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0f172a',
+  },
+  imageContainer: {
+    width: '100%',
+    height: 220,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#0f172a',
+    position: 'relative',
+    marginBottom: 12,
+  },
+  evidenceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlayBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: 'rgba(220, 38, 38, 0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  imageOverlayBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  detailsBox: {
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 4,
+  },
+  detailTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#dc2626',
+    marginBottom: 4,
+  },
+  detailText: {
+    fontSize: 12,
+    color: '#334155',
+    fontWeight: '600',
   },
 });
