@@ -113,13 +113,19 @@ export default function AllCamerasScreen() {
                     <Text style={styles.liveText}>LIVE</Text>
                   </View>
 
-                  {/* Bottom Right Control: Fullscreen Expand Button */}
+                  {/* Bottom Right Control: Fullscreen Expand & Delete Button */}
                   <View style={styles.bottomRightControls}>
                     <TouchableOpacity
                       style={styles.expandBtn}
                       onPress={() => setFullscreenCam(cam)}
                     >
                       <MaterialCommunityIcons name="fullscreen" size={18} color="#ffffff" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteBtn}
+                      onPress={() => removeCamera(cam.id, cam.name)}
+                    >
+                      <MaterialCommunityIcons name="trash-can-outline" size={16} color="#ffffff" />
                     </TouchableOpacity>
                   </View>
                 </View>

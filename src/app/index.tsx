@@ -1,8 +1,8 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, View, StyleSheet, Text } from "react-native";
-import { supabase } from "../lib/supabase";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { checkAndSaveUserFamily, supabase } from "../lib/supabase";
 
 export default function Index() {
   const router = useRouter();
@@ -12,14 +12,23 @@ export default function Index() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
 
-      if (session) {
+      if (session?.user) {
         // ผู้ใช้เคย Login ไว้แล้ว → เช็คว่ามี familyId หรือยัง
         const familyId = await AsyncStorage.getItem('familyId');
         if (familyId) {
           router.replace('/(tabs)/home');
-        } else {
-          router.replace('/family-setup');
+          return;
         }
+
+        // หากใน AsyncStorage ไม่มี ให้ลองเช็คจาก Supabase
+        const existingFamily = await checkAndSaveUserFamily(session.user.id);
+        if (existingFamily?.familyId) {
+          router.replace('/(tabs)/home');
+          return;
+        }
+
+        // ยังไม่มีครอบครัว → ไปหน้าตั้งค่าครอบครัว
+        router.replace('/family-setup');
       } else {
         // ยังไม่เคย Login → ไปหน้า Login
         router.replace('/login');

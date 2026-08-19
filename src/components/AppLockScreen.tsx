@@ -20,12 +20,7 @@ export default function AppLockScreen({ onUnlock }: AppLockScreenProps) {
   const [error, setError] = useState(false);
   const [shakeAnim] = useState(() => new Animated.Value(0));
 
-  // Try biometric on mount
-  useEffect(() => {
-    void tryBiometric();
-  }, []);
-
-  const tryBiometric = async () => {
+  const tryBiometric = useCallback(async () => {
     try {
       const LocalAuth = require('expo-local-authentication');
       const hasHardware = await LocalAuth.hasHardwareAsync();
@@ -45,7 +40,12 @@ export default function AppLockScreen({ onUnlock }: AppLockScreenProps) {
     } catch (e) {
       console.log('Biometric not available:', e);
     }
-  };
+  }, [onUnlock]);
+
+  // Try biometric on mount
+  useEffect(() => {
+    void tryBiometric();
+  }, [tryBiometric]);
 
   const handlePress = useCallback(async (digit: string) => {
     const newPin = pin + digit;

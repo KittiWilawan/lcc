@@ -1,40 +1,40 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCameraPermissions } from 'expo-camera';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Switch,
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
-  Modal,
-  TextInput,
-  Alert,
   Linking,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { supabase } from '../../lib/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import AICameraOverlay from '../../components/AICameraOverlay';
+import { DangerZoneOverlay } from '../../components/DangerZoneOverlay';
+import { FalseAlarmCountdownModal } from '../../components/FalseAlarmCountdownModal';
 import { FullScreenCameraModal } from '../../components/FullScreenCameraModal';
 import { RealStreamPlayer } from '../../components/RealStreamPlayer';
-import { FalseAlarmCountdownModal } from '../../components/FalseAlarmCountdownModal';
-import { DangerZoneOverlay } from '../../components/DangerZoneOverlay';
+import { useTheme } from '../../context/ThemeContext';
 import { recordFallEvent } from '../../lib/fallEvidence';
-import { playEmergencySiren, speakCalmingMessage } from '../../lib/realAIEngine';
 import { sendFallEventLineAlert } from '../../lib/lineNotify';
 import {
   registerForPushNotificationsAsync,
   sendLocalFallNotification,
   sendLocalSOSNotification,
 } from '../../lib/pushNotifications';
+import { playEmergencySiren, speakCalmingMessage } from '../../lib/realAIEngine';
+import { supabase } from '../../lib/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -51,7 +51,8 @@ interface CameraItem {
 export default function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
+  const { colors, isDarkMode } = useTheme();
+
   // Camera State
   const [cameras, setCameras] = useState<CameraItem[]>([]);
   const [fullscreenCam, setFullscreenCam] = useState<CameraItem | null>(null);
@@ -220,12 +221,12 @@ export default function DashboardScreen() {
 
   const toggleTracking = async (id: string, currentVal: boolean) => {
     setMembers(prev => prev.map(m => m.id === id ? { ...m, is_tracked: !currentVal } : m));
-    
+
     const { error } = await supabase
       .from('family_members')
       .update({ is_tracked: !currentVal })
       .eq('id', id);
-      
+
     if (error) {
       setMembers(prev => prev.map(m => m.id === id ? { ...m, is_tracked: currentVal } : m));
       console.error(error);
@@ -348,13 +349,13 @@ export default function DashboardScreen() {
   const trackedCount = members.filter(m => m.is_tracked).length;
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={styles.safeArea}>
 
         {/* =========================================================
             HEADER - Glassmorphism style
            ========================================================= */}
-        <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14) }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14), backgroundColor: colors.headerBg, borderBottomColor: colors.cardBorder }]}>
           <View style={styles.headerLeft}>
             <View style={styles.logoContainer}>
               <Image
@@ -365,14 +366,14 @@ export default function DashboardScreen() {
               <View style={styles.logoOnlineDot} />
             </View>
             <View>
-              <Text style={styles.appName}>LookLanCare</Text>
-              <Text style={styles.familyName}>ครอบครัวสุขสันต์</Text>
+              <Text style={[styles.appName, { color: colors.textPrimary }]}>LookLanCare</Text>
+              <Text style={[styles.familyName, { color: colors.textSecondary }]}>ครอบครัวสุขสันต์</Text>
             </View>
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.notifBtn}>
-              <MaterialCommunityIcons name="bell-outline" size={22} color="#475569" />
+            <TouchableOpacity style={[styles.notifBtn, { backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc', borderColor: colors.cardBorder }]}>
+              <MaterialCommunityIcons name="bell-outline" size={22} color={colors.textSecondary} />
               {events.length > 0 && (
                 <View style={styles.notifBadge}>
                   <Text style={styles.notifBadgeText}>{events.length}</Text>
@@ -389,7 +390,7 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
 
           {/* =========================================================
               AI STATUS BANNER - Gradient-like card
@@ -399,7 +400,7 @@ export default function DashboardScreen() {
               {/* Decorative circles */}
               <View style={[styles.decorCircle, { top: -20, right: -20, opacity: 0.08 }]} />
               <View style={[styles.decorCircle, { bottom: -30, left: -10, opacity: 0.05, width: 100, height: 100 }]} />
-              
+
               <View style={styles.aiBannerContent}>
                 <View style={styles.aiBannerLeft}>
                   <View style={styles.aiIconCircle}>
@@ -439,49 +440,49 @@ export default function DashboardScreen() {
           {/* =========================================================
               3-STEP USER-FRIENDLY QUICK GUIDE CARD
              ========================================================= */}
-          <View style={{ backgroundColor: '#ffffff', borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: '#e2e8f0' }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 16, padding: 14, marginBottom: 20, borderWidth: 1, borderColor: colors.cardBorder }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <MaterialCommunityIcons name="compass-outline" size={18} color="#059669" />
-                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }}>คู่มือการใช้งานง่ายใน 3 ขั้นตอน</Text>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary }}>คู่มือการใช้งานง่ายใน 3 ขั้นตอน</Text>
               </View>
-              <View style={{ backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>ใช้งานง่าย</Text>
+              <View style={{ backgroundColor: colors.accentBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.accentText }}>ใช้งานง่าย</Text>
               </View>
             </View>
 
             <View style={{ gap: 8 }}>
-              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/members')}>
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/members')}>
                 <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>1</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เพิ่มสมาชิกผู้สูงอายุ</Text>
-                  <Text style={{ fontSize: 10, color: '#64748b' }}>ใส่ชื่อและรูปถ่ายเพื่ออ้างอิง AI</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>เพิ่มสมาชิกผู้สูงอายุ</Text>
+                  <Text style={{ fontSize: 10, color: colors.textSecondary }}>ใส่ชื่อและรูปถ่ายเพื่ออ้างอิง AI</Text>
                 </View>
-                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+                <MaterialCommunityIcons name="chevron-right" size={16} color={colors.textMuted} />
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => setShowAddCameraModal(true)}>
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => setShowAddCameraModal(true)}>
                 <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>2</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เชื่อมต่อกล้อง หรือใช้กล้องมือถือ</Text>
-                  <Text style={{ fontSize: 10, color: '#64748b' }}>เลือกกล้องและผูกเข้ากับสมาชิกประจำห้อง</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>เชื่อมต่อกล้อง หรือใช้กล้องมือถือ</Text>
+                  <Text style={{ fontSize: 10, color: colors.textSecondary }}>เลือกกล้องและผูกเข้ากับสมาชิกประจำห้อง</Text>
                 </View>
-                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+                <MaterialCommunityIcons name="chevron-right" size={16} color={colors.textMuted} />
               </TouchableOpacity>
 
-              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/profile')}>
+              <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: isDarkMode ? '#1e293b' : '#f8fafc', padding: 10, borderRadius: 10 }} onPress={() => router.push('/profile')}>
                 <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#059669', justifyContent: 'center', alignItems: 'center' }}>
                   <Text style={{ color: '#fff', fontSize: 12, fontWeight: '900' }}>3</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>ตั้งค่า LINE แจ้งเตือนเข้ามือถือ</Text>
-                  <Text style={{ fontSize: 10, color: '#64748b' }}>ใส่ LINE Token รับข้อความภาพถ่ายฟรีในไลน์</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>ตั้งค่า LINE แจ้งเตือนเข้ามือถือ</Text>
+                  <Text style={{ fontSize: 10, color: colors.textSecondary }}>ใส่ LINE Token รับข้อความภาพถ่ายฟรีในไลน์</Text>
                 </View>
-                <MaterialCommunityIcons name="chevron-right" size={16} color="#94a3b8" />
+                <MaterialCommunityIcons name="chevron-right" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
@@ -492,7 +493,7 @@ export default function DashboardScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <MaterialCommunityIcons name="cctv" size={18} color="#059669" />
-              <Text style={styles.sectionTitle}>กล้องวงจรปิด</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>กล้องวงจรปิด</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
               <TouchableOpacity onPress={() => setShowAddCameraModal(true)}>
@@ -537,55 +538,55 @@ export default function DashboardScreen() {
                       }}
                     />
 
-                  <View style={styles.liveBadge}>
-                    <Animated.View style={[styles.liveDot, { opacity: glowAnim }]} />
-                    <Text style={styles.liveText}>LIVE</Text>
+                    <View style={styles.liveBadge}>
+                      <Animated.View style={[styles.liveDot, { opacity: glowAnim }]} />
+                      <Text style={styles.liveText}>LIVE</Text>
+                    </View>
+
+                    <View style={styles.hdBadge}>
+                      <Text style={styles.hdText}>HD</Text>
+                    </View>
+
+                    <View style={styles.roomLabel}>
+                      <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#ffffff" />
+                      <Text style={styles.roomLabelText}>{cam.name}</Text>
+                    </View>
+
+                    {/* Bottom Right: Fullscreen Expand Only */}
+                    <View style={[styles.cameraOverlayControls, { right: 8, bottom: 8, top: undefined }]}>
+                      <TouchableOpacity
+                        style={styles.cameraControlBtn}
+                        onPress={() => setFullscreenCam(cam)}
+                      >
+                        <MaterialCommunityIcons name="fullscreen" size={18} color="#ffffff" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
 
-                  <View style={styles.hdBadge}>
-                    <Text style={styles.hdText}>HD</Text>
-                  </View>
+                  {/* Camera Info Footer - Clean & Sleek */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.card, borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#059669" />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>{cam.name}</Text>
+                    </View>
 
-                  <View style={styles.roomLabel}>
-                    <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#ffffff" />
-                    <Text style={styles.roomLabelText}>{cam.name}</Text>
-                  </View>
-
-                  {/* Bottom Right: Fullscreen Expand Only */}
-                  <View style={[styles.cameraOverlayControls, { right: 8, bottom: 8, top: undefined }]}>
-                    <TouchableOpacity
-                      style={styles.cameraControlBtn}
-                      onPress={() => setFullscreenCam(cam)}
-                    >
-                      <MaterialCommunityIcons name="fullscreen" size={18} color="#ffffff" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Camera Info Footer - Clean & Sleek */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#ffffff', borderBottomLeftRadius: 16, borderBottomRightRadius: 16 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <MaterialCommunityIcons name={cam.type === 'device' ? "cellphone" : "cctv"} size={14} color="#059669" />
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>{cam.name}</Text>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    {cam.assigned_member_name && (
-                      <View style={{ backgroundColor: '#ecfdf5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <MaterialCommunityIcons name="account-heart" size={12} color="#059669" />
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#059669' }}>{cam.assigned_member_name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {cam.assigned_member_name && (
+                        <View style={{ backgroundColor: colors.accentBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <MaterialCommunityIcons name="account-heart" size={12} color={colors.accentText} />
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.accentText }}>{cam.assigned_member_name}</Text>
+                        </View>
+                      )}
+                      <View style={{ backgroundColor: cam.type === 'device' ? '#fef3c7' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: cam.type === 'device' ? '#92400e' : '#64748b' }}>
+                          {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
+                        </Text>
                       </View>
-                    )}
-                    <View style={{ backgroundColor: cam.type === 'device' ? '#fef3c7' : '#f1f5f9', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                      <Text style={{ fontSize: 10, fontWeight: '600', color: cam.type === 'device' ? '#92400e' : '#64748b' }}>
-                        {cam.type === 'device' ? 'มือถือ' : 'CCTV'}
-                      </Text>
                     </View>
                   </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })}
           </ScrollView>
 
           {/* =========================================================
@@ -594,7 +595,7 @@ export default function DashboardScreen() {
           <View style={styles.sectionHeader}>
             <View style={styles.sectionTitleRow}>
               <MaterialCommunityIcons name="account-group" size={18} color="#059669" />
-              <Text style={styles.sectionTitle}>สมาชิกในบ้าน</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>สมาชิกในบ้าน</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/members')} style={styles.manageBtn}>
               <Text style={styles.manageBtnText}>จัดการ</Text>
@@ -602,7 +603,7 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.membersCard}>
+          <View style={[styles.membersCard, { backgroundColor: colors.card }]}>
             {loadingMembers ? (
               <ActivityIndicator color="#059669" style={{ marginVertical: 24 }} />
             ) : members.length === 0 ? (
@@ -615,16 +616,16 @@ export default function DashboardScreen() {
               </View>
             ) : (
               members.map((member, index) => (
-                <View key={member.id} style={[styles.memberItem, index === members.length - 1 && { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                <View key={member.id} style={[styles.memberItem, { borderBottomColor: colors.separator }, index === members.length - 1 && { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
                   <View style={[styles.memberAvatar, member.is_tracked && styles.memberAvatarActive]}>
                     {member.avatar_url ? (
-                      <Image source={{uri: member.avatar_url}} style={styles.memberAvatarImg} />
+                      <Image source={{ uri: member.avatar_url }} style={styles.memberAvatarImg} />
                     ) : (
                       <MaterialCommunityIcons name="account" size={22} color={member.is_tracked ? '#059669' : '#94a3b8'} />
                     )}
                   </View>
                   <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.display_name}</Text>
+                    <Text style={[styles.memberName, { color: colors.textPrimary }]}>{member.display_name}</Text>
                     <View style={styles.memberRoleRow}>
                       <View style={[styles.roleBadge, member.is_tracked && styles.roleBadgeActive]}>
                         <Text style={[styles.roleBadgeText, member.is_tracked && styles.roleBadgeTextActive]}>{member.role}</Text>
@@ -635,7 +636,7 @@ export default function DashboardScreen() {
                     <Text style={[styles.trackingLabel, member.is_tracked && styles.trackingLabelActive]}>
                       {member.is_tracked ? 'กำลังดูแล' : 'ปิดอยู่'}
                     </Text>
-                    <Switch 
+                    <Switch
                       value={member.is_tracked || false}
                       onValueChange={() => toggleTracking(member.id, member.is_tracked)}
                       trackColor={{ false: '#e2e8f0', true: '#86efac' }}
@@ -656,23 +657,23 @@ export default function DashboardScreen() {
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionTitleRow}>
                   <MaterialCommunityIcons name="clock-outline" size={18} color="#059669" />
-                  <Text style={styles.sectionTitle}>เหตุการณ์ล่าสุด</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>เหตุการณ์ล่าสุด</Text>
                 </View>
                 <TouchableOpacity onPress={clearEvents}>
                   <Text style={styles.sectionAction}>ล้าง</Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.eventsCard}>
+              <View style={[styles.eventsCard, { backgroundColor: colors.card }]}>
                 {events.map((event, index) => (
-                  <View key={event.id} style={[styles.eventItem, index === events.length - 1 && { borderBottomWidth: 0 }]}>
+                  <View key={event.id} style={[styles.eventItem, { borderBottomColor: colors.separator }, index === events.length - 1 && { borderBottomWidth: 0 }]}>
                     <View style={[styles.eventDot, event.isAlert ? styles.eventDotAlert : styles.eventDotNormal]} />
                     <View style={styles.eventContent}>
                       <View style={styles.eventTopRow}>
-                        <Text style={styles.eventTitle}>{event.title}</Text>
+                        <Text style={[styles.eventTitle, { color: colors.textPrimary }]}>{event.title}</Text>
                         <Text style={styles.eventTime}>{event.time}</Text>
                       </View>
-                      <Text style={styles.eventSubtitle}>{event.subtitle}</Text>
+                      <Text style={[styles.eventSubtitle, { color: colors.textSecondary }]}>{event.subtitle}</Text>
                     </View>
                   </View>
                 ))}
@@ -707,24 +708,25 @@ export default function DashboardScreen() {
 
       {/* Add Camera Modal */}
       <Modal visible={showAddCameraModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>เพิ่มกล้องวงจรปิด</Text>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>เพิ่มกล้องวงจรปิด</Text>
               <TouchableOpacity onPress={() => setShowAddCameraModal(false)}>
-                <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+                <MaterialCommunityIcons name="close" size={24} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>ชื่อกล้อง / จุดติดตั้ง</Text>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>ชื่อกล้อง / จุดติดตั้ง</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { backgroundColor: colors.inputBg, color: colors.textPrimary }]}
               placeholder="เช่น ห้องนั่งเล่น, หน้าบ้าน"
+              placeholderTextColor={colors.textMuted}
               value={newCamName}
               onChangeText={setNewCamName}
             />
 
-            <Text style={styles.inputLabel}>ผู้สูงอายุ / สมาชิกประจำกล้อง</Text>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>ผู้สูงอายุ / สมาชิกประจำกล้อง</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               {members.map((m) => {
                 const isSel = assignedMemberId === m.id;
@@ -741,7 +743,7 @@ export default function DashboardScreen() {
               })}
             </ScrollView>
 
-            <Text style={styles.inputLabel}>ประเภทกล้อง</Text>
+            <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>ประเภทกล้อง</Text>
             <View style={styles.typeSelector}>
               <TouchableOpacity
                 style={[styles.typeBtn, newCamType === 'rtsp' && styles.typeBtnActive]}

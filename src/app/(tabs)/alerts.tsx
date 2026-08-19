@@ -8,6 +8,7 @@ import {
   Linking,
   Modal,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -137,6 +138,7 @@ export default function AlertsScreen() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadAlertsAndMembers();
 
     // Supabase Realtime Subscription for instant alert sync
@@ -158,6 +160,28 @@ export default function AlertsScreen() {
 
   const handleViewEvidence = (alert: AlertItem) => {
     setSelectedEvidence(alert);
+  };
+
+  const handleAcknowledgeAlert = async (alertId: string) => {
+    try {
+      setAlerts((prev) =>
+        prev.map((a) => (a.id === alertId ? { ...a, status: 'responded' } : a))
+      );
+
+      if (alertId && alertId !== '1' && alertId !== '2') {
+        await supabase
+          .from('fall_events')
+          .update({ status: 'responded' })
+          .eq('id', alertId);
+      }
+
+      Alert.alert(
+        'รับทราบเหตุการณ์แล้ว 🟢',
+        'ระบบได้ทำการซิงค์บอกทุกคนในบ้านเรียบร้อยแล้วว่าท่านรับทราบและกำลังไปช่วยเหลือ'
+      );
+    } catch (e: any) {
+      console.log('Error acknowledging alert:', e);
+    }
   };
 
   const getStatusBadge = (status: AlertItem['status']) => {
@@ -271,13 +295,23 @@ export default function AlertsScreen() {
                 {alert.type === 'critical' ? (
                   <View style={styles.alertActionsColumn}>
                     <View style={styles.alertActions}>
+                      {alert.status !== 'responded' ? (
+                        <TouchableOpacity
+                          style={[styles.callBtn, { backgroundColor: '#059669', flex: 1.3 }]}
+                          onPress={() => void handleAcknowledgeAlert(alert.id)}
+                        >
+                          <MaterialCommunityIcons name="check-circle-outline" size={16} color="#ffffff" />
+                          <Text style={styles.callBtnText}>รับทราบ / กำลังช่วยเหลือ</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={[styles.callBtn, { backgroundColor: '#dcfce7', borderWidth: 1, borderColor: '#86efac', flex: 1.3 }]}>
+                          <MaterialCommunityIcons name="check-circle" size={16} color="#16a34a" />
+                          <Text style={[styles.callBtnText, { color: '#16a34a', fontWeight: '800' }]}>รับทราบแล้ว</Text>
+                        </View>
+                      )}
                       <TouchableOpacity style={styles.callBtn} onPress={handleCall1669}>
                         <MaterialCommunityIcons name="phone" size={16} color="#ffffff" />
                         <Text style={styles.callBtnText}>Call 1669</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.contactBtn}>
-                        <MaterialCommunityIcons name="account-outline" size={16} color="#0f172a" />
-                        <Text style={styles.contactBtnText}>Contact</Text>
                       </TouchableOpacity>
                     </View>
                     <TouchableOpacity style={styles.evidenceBtn} onPress={() => handleViewEvidence(alert)}>

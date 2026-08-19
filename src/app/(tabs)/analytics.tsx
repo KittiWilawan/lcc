@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -35,11 +35,7 @@ export default function AnalyticsScreen() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [activeMemberName, setActiveMemberName] = useState('สมาชิกผู้สูงอายุ');
 
-  useEffect(() => {
-    void loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const data = await AsyncStorage.getItem('@fall_history');
       if (data) {
@@ -71,7 +67,12 @@ export default function AnalyticsScreen() {
     } catch (e) {
       console.log('Error loading analytics:', e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData();
+  }, [loadData]);
 
   // Compute 7-day stats
   const weeklyData = useMemo(() => {

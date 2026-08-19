@@ -13,6 +13,7 @@ import {
   Platform,
   SafeAreaView,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -60,6 +61,15 @@ export default function ProfileScreen() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [newPin, setNewPin] = useState('');
 
+  // Change Password State
+  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+  const [newAccountPassword, setNewAccountPassword] = useState('');
+  const [confirmAccountPassword, setConfirmAccountPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // Segmented Tab Switcher State
+  const [activeTab, setActiveTab] = useState<'profile' | 'settings' | 'family'>('profile');
+
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [showContactModal, setShowContactModal] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
@@ -105,9 +115,9 @@ export default function ProfileScreen() {
       setActivitySummary(data?.activity_summary ?? true);
       setEmergencySms(data?.emergency_sms ?? false);
 
-      // โหลด LINE Notify Token
-      const storedLineToken = await getLineToken();
-      if (storedLineToken) setLineToken(storedLineToken);
+      // โหลด LINE Messaging API Token
+      const storedLine = await getLineToken();
+      if (storedLine.token) setLineToken(storedLine.token);
 
       // ดึงข้อมูล Contacts
       const { data: contactsData } = await supabase
@@ -189,6 +199,91 @@ export default function ProfileScreen() {
       Alert.alert('เกิดข้อผิดพลาด', e.message || 'ไม่สามารถส่งการแจ้งเตือน LINE ได้');
     } finally {
       setTestingLine(false);
+    }
+  };
+
+  const handleCopyFamilyCode = () => {
+    if (!familyCode || familyCode === 'ไม่มีรหัส') {
+      Alert.alert('แจ้งเตือน', 'ยังไม่มีรหัสครอบครัว');
+      return;
+    }
+    void Share.share({
+      message: familyCode,
+      title: 'รหัสครอบครัว LookLanCare',
+    });
+    Alert.alert('คัดลอกรหัสแล้ว 📋', `รหัสครอบครัว: ${familyCode}`);
+  };
+
+  const handleShareFamilyCode = async () => {
+    if (!familyCode || familyCode === 'ไม่มีรหัส') {
+      Alert.alert('แจ้งเตือน', 'ยังไม่มีรหัสครอบครัว');
+      return;
+    }
+    try {
+      await Share.share({
+        message: `[LookLanCare] เข้าร่วมกลุ่มเฝ้าระวังผู้สูงอายุในบ้านกับฉันบนแอป LookLanCare ด้วยรหัสครอบครัว: ${familyCode}`,
+        title: 'คำเชิญเข้าร่วมครอบครัว LookLanCare',
+      });
+    } catch (e: any) {
+      console.log('Error sharing family code:', e);
+    }
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'ยืนยันการออกจากระบบ 🚪',
+      'คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบในอุปกรณ์นี้?',
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ออกจากระบบ',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setSaving(true);
+              await supabase.auth.signOut();
+              await AsyncStorage.removeItem('familyId');
+              await AsyncStorage.removeItem('familyCode');
+              Alert.alert('ออกจากระบบสำเร็จ', 'ไว้พบกันใหม่ครับ 👋');
+              router.replace('/login');
+            } catch (error: any) {
+              Alert.alert('เกิดข้อผิดพลาดในการออกจากระบบ', error.message);
+            } finally {
+              setSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleChangePassword = async () => {
+    if (!newAccountPassword || !confirmAccountPassword) {
+      Alert.alert('ข้อมูลไม่ครบถ้วน', 'กรุณากรอกรหัสผ่านใหม่และยืนยันรหัสผ่าน');
+      return;
+    }
+    if (newAccountPassword !== confirmAccountPassword) {
+      Alert.alert('รหัสผ่านไม่ตรงกัน', 'รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน');
+      return;
+    }
+    if (newAccountPassword.length < 8) {
+      Alert.alert('รหัสผ่านสั้นเกินไป', 'เพื่อความปลอดภัย รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษรขึ้นไป');
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      const { error } = await supabase.auth.updateUser({ password: newAccountPassword });
+      if (error) throw error;
+
+      Alert.alert('สำเร็จ! 🎉', 'เปลี่ยนรหัสผ่านของคุณเรียบร้อยแล้ว');
+      setShowChangePasswordModal(false);
+      setNewAccountPassword('');
+      setConfirmAccountPassword('');
+    } catch (e: any) {
+      Alert.alert('เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', e.message);
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -342,336 +437,467 @@ export default function ProfileScreen() {
   const displayAvatarUri = newAvatarImage || avatarUrl;
 
   return (
-    <View style={styles.safeArea}>
+    <View style={[styles.safeArea, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14) }]}>
-        <View style={styles.headerLeft}>
-          <View style={styles.logoPlaceholder}>
-            <MaterialCommunityIcons name="shield-account" size={20} color="#059669" />
-          </View>
-          <Text style={styles.headerTitle}>LOOKLANCARE</Text>
-        </View>
-        <TouchableOpacity style={styles.profileBtn}>
-          <MaterialCommunityIcons name="account-outline" size={24} color="#64748b" />
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + 10, 14), backgroundColor: colors.headerBg, borderBottomColor: colors.headerBorder }]}>
+        <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => router.back()}>
+          <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
+          <Text style={[styles.headerTitle, { color: colors.accentText }]}>โปรไฟล์ & ตั้งค่า</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.profileBtn} onPress={() => router.back()}>
+          <MaterialCommunityIcons name="close" size={22} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       {loading ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
           <ActivityIndicator size="large" color="#059669" />
-          <Text style={{ marginTop: 12, color: '#64748b' }}>กำลังโหลดข้อมูล...</Text>
+          <Text style={{ marginTop: 12, color: colors.textSecondary }}>กำลังโหลดข้อมูล...</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
 
-          {/* Profile Picture Section */}
-          <View style={styles.profileHeader}>
-            <TouchableOpacity style={styles.avatarContainer} onPress={pickImage}>
-              <View style={styles.avatarCircle}>
-                {displayAvatarUri ? (
-                  <Image source={{ uri: displayAvatarUri }} style={{ width: 76, height: 76, borderRadius: 38 }} />
-                ) : (
-                  <MaterialCommunityIcons name="account-plus-outline" size={40} color="#94a3b8" />
-                )}
-              </View>
-              <View style={styles.cameraBadge}>
-                <MaterialCommunityIcons name="camera" size={16} color="#ffffff" />
-              </View>
+          {/* Segmented Control Switcher */}
+          <View
+            style={{
+              flexDirection: 'row',
+              backgroundColor: isDarkMode ? '#1e293b' : '#e2e8f0',
+              borderRadius: 14,
+              padding: 4,
+              marginBottom: 16,
+            }}
+          >
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 10,
+                alignItems: 'center',
+                backgroundColor: activeTab === 'profile' ? (isDarkMode ? '#334155' : '#ffffff') : 'transparent',
+                elevation: activeTab === 'profile' ? 2 : 0,
+              }}
+              onPress={() => setActiveTab('profile')}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: activeTab === 'profile' ? (isDarkMode ? '#34d399' : '#059669') : colors.textSecondary,
+                }}
+              >
+                👤 โปรไฟล์
+              </Text>
             </TouchableOpacity>
-            <Text style={styles.profileTitle}>แก้ไขโปรไฟล์</Text>
-            <Text style={styles.profileSubtitle}>จัดการข้อมูลส่วนตัวของคุณ</Text>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 10,
+                alignItems: 'center',
+                backgroundColor: activeTab === 'settings' ? (isDarkMode ? '#334155' : '#ffffff') : 'transparent',
+                elevation: activeTab === 'settings' ? 2 : 0,
+              }}
+              onPress={() => setActiveTab('settings')}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: activeTab === 'settings' ? (isDarkMode ? '#34d399' : '#059669') : colors.textSecondary,
+                }}
+              >
+                ⚙️ ตั้งค่าแอป
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 10,
+                alignItems: 'center',
+                backgroundColor: activeTab === 'family' ? (isDarkMode ? '#334155' : '#ffffff') : 'transparent',
+                elevation: activeTab === 'family' ? 2 : 0,
+              }}
+              onPress={() => setActiveTab('family')}
+            >
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: '800',
+                  color: activeTab === 'family' ? (isDarkMode ? '#34d399' : '#059669') : colors.textSecondary,
+                }}
+              >
+                🏠 ครอบครัว
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Form Inputs */}
-          <View style={styles.formSection}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>ชื่อ-นามสกุล (Full Name)</Text>
-              <TextInput
-                style={styles.input}
-                value={fullName}
-                onChangeText={setFullName}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>เบอร์โทรศัพท์ (Phone Number)</Text>
-              <TextInput
-                style={styles.input}
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                keyboardType="phone-pad"
-              />
-            </View>
-          </View>
-
-          {/* Family Connection */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="account-group" size={20} color="#059669" />
-              <Text style={styles.sectionTitle}>เชื่อมต่อครอบครัว</Text>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#34d399' }]}>
-                  <MaterialCommunityIcons name="key-variant" size={20} color="#ffffff" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>รหัสครอบครัว</Text>
-                  <Text style={styles.cardCode}>{familyCode}</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.copyBtn}>
-                <MaterialCommunityIcons name="content-copy" size={20} color="#059669" />
-                <Text style={styles.copyText}>คัดลอก</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.card}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#e2e8f0' }]}>
-                  <MaterialCommunityIcons name="link-variant" size={20} color="#64748b" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>ลิงก์เชิญเข้าครอบครัว</Text>
-                  <Text style={styles.cardSubtitle}>ส่งลิงก์เพื่อเชิญสมาชิกเข้าบ้าน</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.shareBtn}>
-                <MaterialCommunityIcons name="share-variant" size={16} color="#ffffff" />
-                <Text style={styles.shareText}>แชร์ลิงก์</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Notifications */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="bell-outline" size={20} color="#059669" />
-              <Text style={styles.sectionTitle}>ตั้งค่าการแจ้งเตือน</Text>
-            </View>
-
-            <View style={styles.settingCard}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#fee2e2' }]}>
-                  <MaterialCommunityIcons name="run-fast" size={20} color="#dc2626" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>แจ้งเตือนเมื่อตรวจพบการล้ม</Text>
-                  <Text style={styles.cardSubtitle}>Fall Detection Alerts</Text>
-                </View>
-              </View>
-              <Switch
-                value={fallAlerts}
-                onValueChange={setFallAlerts}
-                trackColor={{ false: '#cbd5e1', true: '#059669' }}
-                thumbColor={'#ffffff'}
-              />
-            </View>
-
-            <View style={styles.settingCard}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#dcfce7' }]}>
-                  <MaterialCommunityIcons name="file-document-outline" size={20} color="#059669" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>สรุปกิจกรรมรายวัน</Text>
-                  <Text style={styles.cardSubtitle}>Activity Summaries</Text>
-                </View>
-              </View>
-              <Switch
-                value={activitySummary}
-                onValueChange={setActivitySummary}
-                trackColor={{ false: '#cbd5e1', true: '#059669' }}
-                thumbColor={'#ffffff'}
-              />
-            </View>
-
-            <View style={styles.settingCard}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#f1f5f9' }]}>
-                  <MaterialCommunityIcons name="message-text-outline" size={20} color="#64748b" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>ส่ง SMS ฉุกเฉิน</Text>
-                  <Text style={styles.cardSubtitle}>Emergency SMS</Text>
-                </View>
-              </View>
-              <Switch
-                value={emergencySms}
-                onValueChange={setEmergencySms}
-                trackColor={{ false: '#cbd5e1', true: '#059669' }}
-                thumbColor={'#ffffff'}
-              />
-            </View>
-
-            {/* LINE Notify Integration Card */}
-            <View style={{ marginTop: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                <MaterialCommunityIcons name="chat-processing-outline" size={18} color="#06c755" />
-                <Text style={{ fontSize: 13, fontWeight: '800', color: '#0f172a' }}>LINE Notify (ส่งรูปภาพฟรีเข้ากลุ่ม LINE)</Text>
+          {/* TAB 1: USER PROFILE & ACCOUNT */}
+          {activeTab === 'profile' && (
+            <View>
+              {/* Profile Picture Section */}
+              <View style={styles.profileHeader}>
+                <TouchableOpacity style={styles.avatarContainer} onPress={pickImage}>
+                  <View style={styles.avatarCircle}>
+                    {displayAvatarUri ? (
+                      <Image source={{ uri: displayAvatarUri }} style={{ width: 76, height: 76, borderRadius: 38 }} />
+                    ) : (
+                      <MaterialCommunityIcons name="account-plus-outline" size={40} color="#94a3b8" />
+                    )}
+                  </View>
+                  <View style={styles.cameraBadge}>
+                    <MaterialCommunityIcons name="camera" size={16} color="#ffffff" />
+                  </View>
+                </TouchableOpacity>
+                <Text style={styles.profileTitle}>{fullName || 'ผู้ใช้งาน LookLanCare'}</Text>
+                <Text style={styles.profileSubtitle}>จัดการข้อมูลส่วนตัวและรหัสผ่านบัญชีของคุณ</Text>
               </View>
 
-              <View style={{ backgroundColor: '#ffffff', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-                <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 8, lineHeight: 16 }}>
-                  กรอก LINE Notify Token ของกลุ่มครอบครัวเพื่อรับข้อความเตือนภัย + รูป Snapshot ทันทีเมื่อเกิดเหตุล้ม:
-                </Text>
-                <TextInput
-                  style={[styles.input, { marginBottom: 10, fontSize: 12 }]}
-                  placeholder="วาง LINE Notify Token ที่นี่..."
-                  value={lineToken}
-                  onChangeText={setLineToken}
-                  autoCapitalize="none"
-                />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+              {/* Form Inputs */}
+              <View style={styles.formSection}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>ชื่อ-นามสกุล (Full Name)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={fullName}
+                    onChangeText={setFullName}
+                    placeholder="กรอกชื่อ-นามสกุล..."
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>เบอร์โทรศัพท์ (Phone Number)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    keyboardType="phone-pad"
+                    placeholder="กรอกเบอร์โทรศัพท์..."
+                  />
+                </View>
+
+                {/* Change Password Card */}
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ffffff', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', marginTop: 4, marginBottom: 12 }}
+                  onPress={() => setShowChangePasswordModal(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#fef3c7' }]}>
+                      <MaterialCommunityIcons name="lock-reset" size={20} color="#d97706" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>เปลี่ยนรหัสผ่าน (Change Password)</Text>
+                      <Text style={styles.cardSubtitle}>ตั้งค่ารหัสผ่านใหม่สำหรับเข้าสู่ระบบ</Text>
+                    </View>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color="#64748b" />
+                </TouchableOpacity>
+              </View>
+
+              {/* Save & Logout Buttons */}
+              <View style={styles.actionsContainer}>
+                <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+                  {saving ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.saveBtnText}>บันทึกข้อมูลโปรไฟล์</Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.cancelBtn, { backgroundColor: '#fef2f2', borderColor: '#fca5a5', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 8 }]}
+                  onPress={handleLogout}
+                  disabled={saving}
+                >
+                  <MaterialCommunityIcons name="logout" size={18} color="#dc2626" style={{ marginRight: 6 }} />
+                  <Text style={[styles.cancelBtnText, { color: '#dc2626', fontWeight: '800' }]}>ออกจากระบบ (Logout)</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* TAB 2: APP SETTINGS & SECURITY */}
+          {activeTab === 'settings' && (
+            <View>
+              {/* LINE Notification Integration */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="chat-processing-outline" size={20} color="#06c755" />
+                  <Text style={styles.sectionTitle}>แจ้งเตือนผ่าน LINE</Text>
+                </View>
+
+                <View style={{ backgroundColor: '#ffffff', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#059669', marginBottom: 4 }}>
+                    ⚡ เชื่อมต่อง่ายๆ ใน 2 ขั้นตอน (ไม่ต้องตั้งค่ารหัสซับซ้อน)
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#64748b', marginBottom: 12, lineHeight: 16 }}>
+                    กดเพิ่มเพื่อนแชตระบบ @LookLanCare แล้วส่งรหัสเชื่อมต่อนี้ในแชตเพื่อรับข้อความเตือนภัย + รูป Snapshot ทันทีเมื่อเกิดเหตุล้ม:
+                  </Text>
+
                   <TouchableOpacity
-                    style={{ flex: 1, backgroundColor: '#06c755', paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
-                    onPress={handleSaveLineToken}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: '#06c755',
+                      paddingVertical: 12,
+                      borderRadius: 10,
+                      marginBottom: 12,
+                      gap: 8,
+                    }}
+                    onPress={() => Linking.openURL('https://line.me/R/ti/p/@looklancare')}
                   >
-                    <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>บันทึก Token</Text>
+                    <MaterialCommunityIcons name="chat-outline" size={20} color="#ffffff" />
+                    <Text style={{ color: '#ffffff', fontSize: 13, fontWeight: '800' }}>🟢 1. กดเพิ่มเพื่อน @LookLanCare ใน LINE</Text>
                   </TouchableOpacity>
+
+                  <View style={{ backgroundColor: '#ecfdf5', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#a7f3d0', alignItems: 'center', marginBottom: 12 }}>
+                    <Text style={{ fontSize: 11, color: '#047857', fontWeight: '800' }}>2. รหัสเชื่อมต่อของคุณ (ส่งในแชตไลน์)</Text>
+                    <Text style={{ fontSize: 20, fontWeight: '900', color: '#059669', letterSpacing: 3, marginVertical: 4 }}>
+                      {userId ? `LLC-${userId.substring(0, 6).toUpperCase()}` : 'LLC-889900'}
+                    </Text>
+                    <Text style={{ fontSize: 10, color: '#64748b', textAlign: 'center' }}>
+                      พิมพ์รหัสนี้ส่งในไลน์เพื่อผูกรับแจ้งเตือนสำหรับผู้สูงอายุในบ้านของคุณ
+                    </Text>
+                  </View>
+
                   <TouchableOpacity
-                    style={{ flex: 1, backgroundColor: '#0f172a', paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                    style={{ backgroundColor: '#0f172a', paddingVertical: 12, borderRadius: 10, alignItems: 'center' }}
                     onPress={handleTestLineNotify}
                     disabled={testingLine}
                   >
                     {testingLine ? (
                       <ActivityIndicator color="#fff" size="small" />
                     ) : (
-                      <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>💬 ทดสอบส่ง LINE</Text>
+                      <Text style={{ color: '#ffffff', fontSize: 12, fontWeight: '700' }}>💬 ทดสอบส่งการแจ้งเตือน LINE</Text>
                     )}
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
-          </View>
 
-          {/* Security & Theme Settings */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="shield-account-outline" size={20} color="#059669" />
-              <Text style={styles.sectionTitle}>ความปลอดภัย & การแสดงผล</Text>
-            </View>
+              {/* Security & Theme Settings */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="shield-account-outline" size={20} color="#059669" />
+                  <Text style={styles.sectionTitle}>ความปลอดภัย & การแสดงผล</Text>
+                </View>
 
-            {/* Dark Mode Card */}
-            <View style={styles.settingCard}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#312e81' }]}>
-                  <MaterialCommunityIcons name="theme-light-dark" size={20} color="#818cf8" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>โหมดมืด (Dark Mode)</Text>
-                  <Text style={styles.cardSubtitle}>เปลี่ยนธีมแอปเพื่อเปิดใช้งานกลางดึกไม่แสบตา</Text>
-                </View>
-              </View>
-              <Switch
-                value={isDarkMode}
-                onValueChange={toggleDarkMode}
-                trackColor={{ false: '#cbd5e1', true: '#4f46e5' }}
-                thumbColor={'#ffffff'}
-              />
-            </View>
-
-            {/* App Lock Card */}
-            <View style={styles.settingCard}>
-              <View style={styles.cardLeft}>
-                <View style={[styles.iconCircle, { backgroundColor: '#ecfdf5' }]}>
-                  <MaterialCommunityIcons name="lock-check-outline" size={20} color="#059669" />
-                </View>
-                <View>
-                  <Text style={styles.cardLabel}>ล็อกแอป (App Lock)</Text>
-                  <Text style={styles.cardSubtitle}>ถาม PIN 4 หลัก / สแกนนิ้วเมื่อเปิดแอป</Text>
-                </View>
-              </View>
-              <Switch
-                value={appLockEnabled}
-                onValueChange={handleToggleAppLock}
-                trackColor={{ false: '#cbd5e1', true: '#059669' }}
-                thumbColor={'#ffffff'}
-              />
-            </View>
-
-            {appLockEnabled && (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginTop: 6 }}
-                onPress={() => setShowPinModal(true)}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <MaterialCommunityIcons name="key-change" size={18} color="#059669" />
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เปลี่ยน PIN 4 หลัก</Text>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={18} color="#64748b" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Emergency Contacts */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <MaterialCommunityIcons name="map-marker-radius-outline" size={20} color="#dc2626" />
-              <Text style={styles.sectionTitle}>รายชื่อติดต่อฉุกเฉิน</Text>
-            </View>
-
-            {contacts.map((contact) => (
-              <TouchableOpacity
-                key={contact.id}
-                style={contact.is_primary ? styles.contactCardPrimary : styles.contactCard}
-                onPress={() => handleCall(contact.phone)}
-              >
-                <View style={styles.cardLeft}>
-                  <View style={[styles.iconCircle, { backgroundColor: '#e0f2fe' }]}>
-                    <MaterialCommunityIcons name={(contact?.icon_name || 'account-outline') as any} size={20} color="#0284c7" />
-                  </View>
-                  <View>
-                    <Text style={styles.cardLabel}>{contact.name}</Text>
-                    <Text style={styles.cardSubtitle}>{contact.phone}</Text>
-                  </View>
-                </View>
-                <View style={styles.contactRight}>
-                  {contact.is_primary && (
-                    <View style={styles.primaryBadge}>
-                      <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                {/* Dark Mode Card */}
+                <View style={styles.settingCard}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#312e81' }]}>
+                      <MaterialCommunityIcons name="theme-light-dark" size={20} color="#818cf8" />
                     </View>
-                  )}
-                  <TouchableOpacity onPress={() => {
-                    Alert.alert('จัดการรายชื่อ', contact.name, [
-                      { text: 'โทรออก', onPress: () => handleCall(contact.phone) },
-                      { text: 'แก้ไข', onPress: () => openEditContactModal(contact) },
-                      { text: 'ลบ', style: 'destructive', onPress: () => handleDeleteContact(contact.id) },
-                      { text: 'ยกเลิก', style: 'cancel' }
-                    ]);
-                  }} style={{ padding: 8 }}>
-                    <MaterialCommunityIcons name="dots-vertical" size={20} color="#94a3b8" />
+                    <View>
+                      <Text style={styles.cardLabel}>โหมดมืด (Dark Mode)</Text>
+                      <Text style={styles.cardSubtitle}>เปลี่ยนธีมแอปเพื่อเปิดใช้งานกลางดึกไม่แสบตา</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isDarkMode}
+                    onValueChange={toggleDarkMode}
+                    trackColor={{ false: '#cbd5e1', true: '#4f46e5' }}
+                    thumbColor={'#ffffff'}
+                  />
+                </View>
+
+                {/* App Lock Card */}
+                <View style={styles.settingCard}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#ecfdf5' }]}>
+                      <MaterialCommunityIcons name="lock-check-outline" size={20} color="#059669" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>ล็อกแอป (App Lock)</Text>
+                      <Text style={styles.cardSubtitle}>ถาม PIN 4 หลัก / สแกนนิ้วเมื่อเปิดแอป</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={appLockEnabled}
+                    onValueChange={handleToggleAppLock}
+                    trackColor={{ false: '#cbd5e1', true: '#059669' }}
+                    thumbColor={'#ffffff'}
+                  />
+                </View>
+
+                {appLockEnabled && (
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e2e8f0', marginTop: 6 }}
+                    onPress={() => setShowPinModal(true)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <MaterialCommunityIcons name="key-change" size={18} color="#059669" />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: '#0f172a' }}>เปลี่ยน PIN 4 หลัก</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* System Notification Toggles */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="bell-outline" size={20} color="#059669" />
+                  <Text style={styles.sectionTitle}>การสวิตช์ระบบการเตือน</Text>
+                </View>
+
+                <View style={styles.settingCard}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#fee2e2' }]}>
+                      <MaterialCommunityIcons name="run-fast" size={20} color="#dc2626" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>แจ้งเตือนเมื่อตรวจพบการล้ม</Text>
+                      <Text style={styles.cardSubtitle}>Fall Detection Alerts</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={fallAlerts}
+                    onValueChange={setFallAlerts}
+                    trackColor={{ false: '#cbd5e1', true: '#059669' }}
+                    thumbColor={'#ffffff'}
+                  />
+                </View>
+
+                <View style={styles.settingCard}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#dcfce7' }]}>
+                      <MaterialCommunityIcons name="file-document-outline" size={20} color="#059669" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>สรุปกิจกรรมรายวัน</Text>
+                      <Text style={styles.cardSubtitle}>Activity Summaries</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={activitySummary}
+                    onValueChange={setActivitySummary}
+                    trackColor={{ false: '#cbd5e1', true: '#059669' }}
+                    thumbColor={'#ffffff'}
+                  />
+                </View>
+
+                <View style={styles.settingCard}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#f1f5f9' }]}>
+                      <MaterialCommunityIcons name="message-text-outline" size={20} color="#64748b" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>ส่ง SMS ฉุกเฉิน</Text>
+                      <Text style={styles.cardSubtitle}>Emergency SMS</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={emergencySms}
+                    onValueChange={setEmergencySms}
+                    trackColor={{ false: '#cbd5e1', true: '#059669' }}
+                    thumbColor={'#ffffff'}
+                  />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* TAB 3: FAMILY & EMERGENCY CONTACTS */}
+          {activeTab === 'family' && (
+            <View>
+              {/* Family Connection */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="account-group" size={20} color="#059669" />
+                  <Text style={styles.sectionTitle}>เชื่อมต่อกลุ่มครอบครัว</Text>
+                </View>
+
+                <View style={styles.card}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#34d399' }]}>
+                      <MaterialCommunityIcons name="key-variant" size={20} color="#ffffff" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>รหัสครอบครัว</Text>
+                      <Text style={styles.cardCode}>{familyCode}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity style={styles.copyBtn} onPress={handleCopyFamilyCode}>
+                    <MaterialCommunityIcons name="content-copy" size={20} color="#059669" />
+                    <Text style={styles.copyText}>คัดลอก</Text>
                   </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-            ))}
 
-            {contacts.length === 0 && (
-              <View style={{ alignItems: 'center', marginVertical: 10 }}>
-                <Text style={{ color: '#94a3b8', fontSize: 12 }}>ยังไม่มีรายชื่อผู้ติดต่อฉุกเฉิน</Text>
+                <View style={styles.card}>
+                  <View style={styles.cardLeft}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#e2e8f0' }]}>
+                      <MaterialCommunityIcons name="link-variant" size={20} color="#64748b" />
+                    </View>
+                    <View>
+                      <Text style={styles.cardLabel}>ลิงก์เชิญเข้าครอบครัว</Text>
+                      <Text style={styles.cardSubtitle}>ส่งลิงก์/รหัส เพื่อเชิญสมาชิกเข้าบ้าน</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity style={styles.shareBtn} onPress={handleShareFamilyCode}>
+                    <MaterialCommunityIcons name="share-variant" size={16} color="#ffffff" />
+                    <Text style={styles.shareText}>แชร์รหัส</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            )}
 
-            <TouchableOpacity style={styles.addContactBtn} onPress={openAddContactModal}>
-              <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#059669" style={{ marginRight: 8 }} />
-              <Text style={styles.addContactText}>เพิ่มรายชื่อติดต่อฉุกเฉิน</Text>
-            </TouchableOpacity>
-          </View>
+              {/* Emergency Contacts */}
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <MaterialCommunityIcons name="map-marker-radius-outline" size={20} color="#dc2626" />
+                  <Text style={styles.sectionTitle}>รายชื่อติดต่อฉุกเฉิน</Text>
+                </View>
 
-          {/* Action Buttons */}
-          <View style={styles.actionsContainer}>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
-              {saving ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.saveBtnText}>บันทึกการเปลี่ยนแปลง</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => router.replace('/home')} disabled={saving}>
-              <Text style={styles.cancelBtnText}>ยกเลิก</Text>
-            </TouchableOpacity>
-          </View>
+                {contacts.map((contact) => (
+                  <TouchableOpacity
+                    key={contact.id}
+                    style={contact.is_primary ? styles.contactCardPrimary : styles.contactCard}
+                    onPress={() => handleCall(contact.phone)}
+                  >
+                    <View style={styles.cardLeft}>
+                      <View style={[styles.iconCircle, { backgroundColor: '#e0f2fe' }]}>
+                        <MaterialCommunityIcons name={(contact?.icon_name || 'account-outline') as any} size={20} color="#0284c7" />
+                      </View>
+                      <View>
+                        <Text style={styles.cardLabel}>{contact.name}</Text>
+                        <Text style={styles.cardSubtitle}>{contact.phone}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.contactRight}>
+                      {contact.is_primary && (
+                        <View style={styles.primaryBadge}>
+                          <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                        </View>
+                      )}
+                      <TouchableOpacity onPress={() => {
+                        Alert.alert('จัดการรายชื่อ', contact.name, [
+                          { text: 'โทรออก', onPress: () => handleCall(contact.phone) },
+                          { text: 'แก้ไข', onPress: () => openEditContactModal(contact) },
+                          { text: 'ลบ', style: 'destructive', onPress: () => handleDeleteContact(contact.id) },
+                          { text: 'ยกเลิก', style: 'cancel' }
+                        ]);
+                      }} style={{ padding: 8 }}>
+                        <MaterialCommunityIcons name="dots-vertical" size={20} color="#94a3b8" />
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+
+                {contacts.length === 0 && (
+                  <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                    <Text style={{ color: '#94a3b8', fontSize: 12 }}>ยังไม่มีรายชื่อผู้ติดต่อฉุกเฉิน</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity style={styles.addContactBtn} onPress={openAddContactModal}>
+                  <MaterialCommunityIcons name="plus-circle-outline" size={18} color="#059669" style={{ marginRight: 8 }} />
+                  <Text style={styles.addContactText}>เพิ่มรายชื่อติดต่อฉุกเฉิน</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
         </ScrollView>
       )}
@@ -774,6 +1000,53 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* Change Password Modal */}
+      <Modal visible={showChangePasswordModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>เปลี่ยนรหัสผ่านใหม่</Text>
+              <TouchableOpacity onPress={() => setShowChangePasswordModal(false)}>
+                <MaterialCommunityIcons name="close" size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newAccountPassword}
+                  onChangeText={setNewAccountPassword}
+                  placeholder="พิมพ์รหัสผ่านใหม่..."
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>ยืนยันรหัสผ่านใหม่</Text>
+                <TextInput
+                  style={styles.input}
+                  value={confirmAccountPassword}
+                  onChangeText={setConfirmAccountPassword}
+                  placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง..."
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <TouchableOpacity style={styles.saveBtn} onPress={handleChangePassword} disabled={changingPassword}>
+                {changingPassword ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.saveBtnText}>บันทึกรหัสผ่านใหม่</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </View>
   );
 }

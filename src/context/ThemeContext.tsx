@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface ThemeContextType {
@@ -55,11 +55,7 @@ const ThemeContext = createContext<ThemeContextType>({
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
 
-  useEffect(() => {
-    void loadTheme();
-  }, []);
-
-  const loadTheme = async () => {
+  const loadTheme = useCallback(async () => {
     try {
       const stored = await AsyncStorage.getItem('@dark_mode');
       if (stored === 'true') {
@@ -68,7 +64,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       console.log('Error loading theme:', e);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadTheme();
+  }, [loadTheme]);
 
   const toggleDarkMode = async () => {
     const newVal = !isDarkMode;

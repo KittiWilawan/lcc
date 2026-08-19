@@ -178,6 +178,38 @@ export default function MembersScreen() {
     );
   };
 
+  const handleLeaveFamily = () => {
+    Alert.alert(
+      'ยืนยันการออกจากครอบครัว 🏠',
+      'คุณแน่ใจหรือไม่ว่าต้องการออกจากครอบครัวนี้? หากต้องการกลับเข้ามาใหม่จะต้องกรอกรหัส 6 หลักอีกครั้ง',
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ออกจากครอบครัว',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const { data: { session } } = await supabase.auth.getSession();
+              const userId = session?.user?.id;
+              if (userId) {
+                await supabase.from('family_members').delete().eq('user_id', userId);
+              }
+              await AsyncStorage.removeItem('familyId');
+              await AsyncStorage.removeItem('familyCode');
+              Alert.alert('สำเร็จ', 'ออกจากครอบครัวเรียบร้อยแล้ว');
+              router.replace('/family-setup');
+            } catch (error: any) {
+              Alert.alert('เกิดข้อผิดพลาดในการออกจากครอบครัว', error.message);
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleSaveMember = async () => {
     const isEditing = !!editingMemberId;
 
@@ -375,6 +407,27 @@ export default function MembersScreen() {
             )}
           </View>
         )}
+
+        {/* Leave Family Action Button */}
+        <TouchableOpacity
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#fef2f2',
+            borderWidth: 1,
+            borderColor: '#fca5a5',
+            paddingVertical: 14,
+            borderRadius: 12,
+            marginTop: 16,
+            marginBottom: 30,
+            gap: 8,
+          }}
+          onPress={handleLeaveFamily}
+        >
+          <MaterialCommunityIcons name="home-minus-outline" size={20} color="#dc2626" />
+          <Text style={{ color: '#dc2626', fontSize: 14, fontWeight: '800' }}>ออกจากครอบครัวนี้ (Leave Family)</Text>
+        </TouchableOpacity>
 
       </ScrollView>
 

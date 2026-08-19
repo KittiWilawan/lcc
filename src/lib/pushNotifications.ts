@@ -1,15 +1,27 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { supabase } from './supabase';
 
 export const STORAGE_KEY_EXPO_PUSH_TOKEN = '@expo_push_token';
 
-function getNotificationsModule() {
+// Detect if running inside Expo Go store client
+const isExpoGo =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  (Constants as any)?.appOwnership === 'expo';
+
+/**
+ * Safely load expo-notifications module dynamically.
+ * Returns null in Expo Go on Android or Web to prevent native module crashes.
+ */
+function getNotificationsModule(): any | null {
+  if (Platform.OS === 'web') return null;
+  if (isExpoGo && Platform.OS === 'android') return null;
+
   try {
-    const Notifications = require('expo-notifications');
-    return Notifications;
+    return require('expo-notifications');
   } catch (e) {
-    console.log('expo-notifications module not loaded:', e);
+    console.log('[LookLanCare] expo-notifications module notice:', e);
     return null;
   }
 }
@@ -19,41 +31,65 @@ function getNotificationsModule() {
  * and register/sync Expo Push Token to Supabase
  */
 export async function registerForPushNotificationsAsync(): Promise<boolean> {
-  try {
-    const Notifications = getNotificationsModule();
-    if (!Notifications) return false;
+  const Notifications = getNotificationsModule();
+  if (!Notifications) {
+    if (isExpoGo && Platform.OS === 'android') {
+      console.log('[LookLanCare] Remote push notifications are disabled in Expo Go on Android (SDK 53+). Use a development build for remote push testing.');
+    }
+    return false;
+  }
 
+  try {
     if (typeof Notifications.setNotificationHandler === 'function') {
-      Notifications.setNotificationHandler({
-        handleNotification: async () => ({
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: true,
-          shouldShowBanner: true,
-          shouldShowList: true,
-        }),
-      });
+      try {
+        Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+            shouldShowBanner: true,
+            shouldShowList: true,
+          }),
+        });
+      } catch (err) {
+        console.log('setNotificationHandler notice:', err);
+      }
     }
 
     if (Platform.OS === 'android' && typeof Notifications.setNotificationChannelAsync === 'function') {
-      await Notifications.setNotificationChannelAsync('emergency-fall-channel', {
-        name: 'การแจ้งเตือนเหตุล้มฉุกเฉิน (LookLanCare)',
-        importance: Notifications.AndroidImportance?.MAX ?? 5,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#EF4444',
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility?.PUBLIC ?? 1,
-        sound: 'default',
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('emergency-fall-channel', {
+          name: 'การแจ้งเตือนเหตุล้มฉุกเฉิน (LookLanCare)',
+          importance: Notifications.AndroidImportance?.MAX ?? 5,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#EF4444',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility?.PUBLIC ?? 1,
+          sound: 'default',
+        });
+      } catch (err) {
+        console.log('setNotificationChannelAsync notice:', err);
+      }
     }
 
     if (typeof Notifications.getPermissionsAsync !== 'function') return false;
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let existingStatus = 'denied';
+    try {
+      const res = await Notifications.getPermissionsAsync();
+      existingStatus = res.status;
+    } catch {
+      return false;
+    }
+
     let finalStatus = existingStatus;
 
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      } catch {
+        return false;
+      }
     }
 
     if (finalStatus !== 'granted') {
@@ -64,7 +100,7 @@ export async function registerForPushNotificationsAsync(): Promise<boolean> {
     try {
       if (typeof Notifications.getExpoPushTokenAsync === 'function') {
         const tokenData = await Notifications.getExpoPushTokenAsync();
-        const token = tokenData.data;
+        const token = tokenData?.data;
         if (token) {
           await AsyncStorage.setItem(STORAGE_KEY_EXPO_PUSH_TOKEN, token);
           await syncPushTokenToSupabase(token);
@@ -188,9 +224,9 @@ export async function sendLocalFallNotification(params: {
   const body = `ตรวจพบ ${person} ล้มที่ ${location} (นอนติดพื้น ${duration} วินาที) กดแตะเพื่อเข้าดูภาพด่วน!`;
 
   // Local notification
-  try {
-    const Notifications = getNotificationsModule();
-    if (Notifications && typeof Notifications.scheduleNotificationAsync === 'function') {
+  const Notifications = getNotificationsModule();
+  if (Notifications && typeof Notifications.scheduleNotificationAsync === 'function') {
+    try {
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -201,9 +237,9 @@ export async function sendLocalFallNotification(params: {
         },
         trigger: null,
       });
+    } catch (e) {
+      console.log('Error sending local fall notification:', e);
     }
-  } catch (e) {
-    console.log('Error sending local fall notification:', e);
   }
 
   // Remote Push notification broadcast to family members
@@ -217,9 +253,9 @@ export async function sendLocalSOSNotification(): Promise<void> {
   const title = '🚨 [LLC SOS] สัญญาณขอความช่วยเหลือฉุกเฉิน!';
   const body = 'มีผู้กดปุ่มขอความช่วยเหลือ SOS 1669 บนหน้าจอแอป กดเพื่อเปิดระบบสายด่วนกู้ชีพด่วน!';
 
-  try {
-    const Notifications = getNotificationsModule();
-    if (Notifications && typeof Notifications.scheduleNotificationAsync === 'function') {
+  const Notifications = getNotificationsModule();
+  if (Notifications && typeof Notifications.scheduleNotificationAsync === 'function') {
+    try {
       await Notifications.scheduleNotificationAsync({
         content: {
           title,
@@ -230,9 +266,9 @@ export async function sendLocalSOSNotification(): Promise<void> {
         },
         trigger: null,
       });
+    } catch (e) {
+      console.log('Error sending local SOS notification:', e);
     }
-  } catch (e) {
-    console.log('Error sending local SOS notification:', e);
   }
 
   // Remote Push notification broadcast to family members

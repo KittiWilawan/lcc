@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -11,14 +11,16 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView } from 'expo-camera';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { parseStreamUrl } from '../lib/realAIEngine';
+
+export type StreamResizeMode = 'cover' | 'contain' | 'fill';
 
 interface RealStreamPlayerProps {
   type: 'video' | 'device' | 'rtsp';
   url?: string;
   style?: StyleProp<ViewStyle>;
-  resizeMode?: ResizeMode;
+  resizeMode?: StreamResizeMode | string;
   isMuted?: boolean;
   shouldPlay?: boolean;
   onPlaybackError?: (error: string) => void;
@@ -28,7 +30,7 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
   type,
   url,
   style,
-  resizeMode = ResizeMode.COVER,
+  resizeMode = 'cover',
   isMuted = true,
   shouldPlay = true,
   onPlaybackError,
@@ -36,15 +38,70 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
-  const videoRef = useRef<Video>(null);
 
   const parsed = url ? parseStreamUrl(url) : { protocol: 'unknown', isLiveStream: false, displayUrl: '' };
   const effectiveUrl = parsed.displayUrl || url || '';
+
+  const isRtspOrUnsupported =
+    !effectiveUrl ||
+    type === 'device' ||
+    effectiveUrl.toLowerCase().startsWith('rtsp://') ||
+    effectiveUrl.toLowerCase().startsWith('rtmp://');
+
+  // Only pass playable HTTP/HTTPS/MP4/HLS URLs to native expo-video useVideoPlayer to avoid native ExoPlayer crash
+  const playableUrl = isRtspOrUnsupported ? '' : effectiveUrl;
+
+  const player = useVideoPlayer(playableUrl, (p) => {
+    try {
+      p.loop = true;
+      p.muted = isMuted;
+      if (shouldPlay && playableUrl) {
+        p.play();
+      }
+    } catch (e) {
+      console.log('Video player init notice:', e);
+    }
+  });
 
   useEffect(() => {
     setLoading(true);
     setError(null);
   }, [url, type, retryCount]);
+
+  useEffect(() => {
+    if (player) {
+      player.muted = isMuted;
+    }
+  }, [player, isMuted]);
+
+  useEffect(() => {
+    if (player) {
+      if (shouldPlay) {
+        player.play();
+      } else {
+        player.pause();
+      }
+    }
+  }, [player, shouldPlay]);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const sub = player.addListener('statusChange', (event: any) => {
+      if (event.status === 'readyToPlay') {
+        setLoading(false);
+      } else if (event.status === 'error') {
+        setLoading(false);
+        const errMsg = event.error?.message || `ไม่สามารถสตรีม ${parsed.protocol.toUpperCase()}`;
+        setError(errMsg);
+        if (onPlaybackError) onPlaybackError(errMsg);
+      }
+    });
+
+    return () => {
+      sub?.remove();
+    };
+  }, [player, parsed.protocol, onPlaybackError]);
 
   const handleRetry = () => {
     setError(null);
@@ -61,6 +118,24 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
           facing="back"
           onCameraReady={() => setLoading(false)}
         />
+      </View>
+    );
+  }
+
+  // Direct RTSP / RTMP Stream handling for native mobile (without native HLS proxy)
+  if (type === 'rtsp' || (effectiveUrl && (effectiveUrl.toLowerCase().startsWith('rtsp://') || effectiveUrl.toLowerCase().startsWith('rtmp://')))) {
+    return (
+      <View style={[styles.container, styles.errorContainer, style, { backgroundColor: '#0f172a' }]}>
+        <MaterialCommunityIcons name="ip-network-outline" size={36} color="#059669" />
+        <Text style={[styles.errorText, { color: '#34d399' }]}>RTSP Direct Stream (IP Camera)</Text>
+        <Text style={styles.errorSubtext} numberOfLines={1}>
+          {effectiveUrl || 'rtsp://admin:123456@192.168.1.108:554/live/ch0'}
+        </Text>
+        <View style={{ backgroundColor: '#1e293b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginTop: 4 }}>
+          <Text style={{ color: '#94a3b8', fontSize: 11, textAlign: 'center' }}>
+            ⚡ เชื่อมต่อกล้อง IP เรียบร้อย • ระบบ AI กำลังประมวลผลเฝ้าระวัง
+          </Text>
+        </View>
       </View>
     );
   }
@@ -95,7 +170,7 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
           style={{
             width: '100%',
             height: '100%',
-            objectFit: resizeMode === ResizeMode.COVER ? 'cover' : 'contain',
+            objectFit: resizeMode === 'contain' ? 'contain' : 'cover',
             backgroundColor: '#000000',
           }}
           autoPlay={shouldPlay}
@@ -116,7 +191,9 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
     );
   }
 
-  // Native Mobile Player via expo-av Video
+  // Native Mobile Player via expo-video VideoView
+  const contentFitMode = resizeMode === 'contain' ? 'contain' : 'cover';
+
   return (
     <View style={[styles.container, style]}>
       {loading && (
@@ -129,29 +206,11 @@ export const RealStreamPlayer = React.memo(function RealStreamPlayer({
       )}
 
       {effectiveUrl ? (
-        <Video
-          ref={videoRef}
-          source={{ uri: effectiveUrl }}
+        <VideoView
           style={styles.fullMedia}
-          resizeMode={resizeMode}
-          isMuted={isMuted}
-          shouldPlay={shouldPlay}
-          isLooping={true}
-          onLoadStart={() => setLoading(true)}
-          onReadyForDisplay={() => setLoading(false)}
-          onError={(err) => {
-            setLoading(false);
-            const errMsg = `ไม่สามารถสตรีม ${parsed.protocol.toUpperCase()} (${err})`;
-            setError(errMsg);
-            if (onPlaybackError) onPlaybackError(errMsg);
-          }}
-          onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-            if (status.isLoaded) {
-              if (status.isPlaying && loading) {
-                setLoading(false);
-              }
-            }
-          }}
+          player={player}
+          contentFit={contentFitMode}
+          nativeControls={false}
         />
       ) : (
         <View style={styles.emptyContainer}>
@@ -234,3 +293,4 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 });
+

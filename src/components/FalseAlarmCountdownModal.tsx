@@ -126,7 +126,7 @@ export const FalseAlarmCountdownModal = React.memo(function FalseAlarmCountdownM
             </View>
 
             <Text style={styles.noticeText}>
-              หากต้องการยกเลิก กดปุ่ม "ฉันสบายดี" ด้านล่างก่อนหมดเวลา
+              {"หากต้องการยกเลิก กดปุ่ม \"ฉันสบายดี\" ด้านล่างก่อนหมดเวลา"}
             </Text>
 
             {/* Action Buttons */}

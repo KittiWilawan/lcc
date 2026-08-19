@@ -1,13 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +16,7 @@ import {
   View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { supabase } from '../lib/supabase';
+import { supabase, checkAndSaveUserFamily } from '../lib/supabase';
 
 export default function FamilySetupScreen() {
   const router = useRouter();
@@ -25,6 +26,23 @@ export default function FamilySetupScreen() {
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>([]);
+
+  useEffect(() => {
+    async function checkExistingFamily() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          const familyInfo = await checkAndSaveUserFamily(session.user.id);
+          if (familyInfo?.familyId) {
+            router.replace('/(tabs)/home');
+          }
+        }
+      } catch (e) {
+        console.log('Error checking existing family in setup:', e);
+      }
+    }
+    void checkExistingFamily();
+  }, [router]);
 
   const handleCodeChange = (text: string, index: number) => {
     const newCode = [...code];
@@ -95,7 +113,7 @@ export default function FamilySetupScreen() {
         await AsyncStorage.setItem('familyCode', fullCode);
         await AsyncStorage.setItem('familyId', family.id);
         Alert.alert('สำเร็จ', 'เข้าร่วมครอบครัวเรียบร้อยแล้ว');
-        router.replace('/home');
+        router.replace('/(tabs)/home');
 
       } else {
         if (!generatedCode) {
@@ -135,7 +153,7 @@ export default function FamilySetupScreen() {
           await AsyncStorage.setItem('familyId', newFamily.id);
 
         } else {
-          router.replace('/home');
+          router.replace('/(tabs)/home');
         }
       }
     } catch (error: any) {
@@ -191,6 +209,30 @@ export default function FamilySetupScreen() {
                 <Text style={styles.generatedCodeLabel}>รหัสครอบครัวของคุณ</Text>
                 <View style={styles.generatedCodeContainer}>
                   <Text style={styles.generatedCodeText}>{generatedCode}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, gap: 6, borderWidth: 1, borderColor: '#a7f3d0' }}
+                    onPress={() => {
+                      void Share.share({ message: generatedCode, title: 'รหัสครอบครัว LookLanCare' });
+                      Alert.alert('คัดลอกรหัสแล้ว 📋', `รหัสครอบครัว: ${generatedCode}`);
+                    }}
+                  >
+                    <MaterialCommunityIcons name="content-copy" size={16} color="#059669" />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#059669' }}>คัดลอก</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#059669', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, gap: 6 }}
+                    onPress={() => {
+                      void Share.share({
+                        message: `[LookLanCare] เข้าร่วมกลุ่มเฝ้าระวังผู้สูงอายุในบ้านกับฉันบนแอป LookLanCare ด้วยรหัสครอบครัว: ${generatedCode}`,
+                        title: 'คำเชิญเข้าร่วมครอบครัว LookLanCare',
+                      });
+                    }}
+                  >
+                    <MaterialCommunityIcons name="share-variant" size={16} color="#ffffff" />
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#ffffff' }}>แชร์รหัส</Text>
+                  </TouchableOpacity>
                 </View>
                 <Text style={styles.generatedCodeNote}>* แชร์รหัส 6 หลักนี้ให้สมาชิกคนอื่นเพื่อเข้าร่วม</Text>
               </View>

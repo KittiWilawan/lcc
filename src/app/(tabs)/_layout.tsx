@@ -2,9 +2,11 @@ import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { View, StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { colors, isDarkMode } = useTheme();
   const bottomPadding = Math.max(insets.bottom, 10);
   const tabHeight = 60 + bottomPadding;
 
@@ -12,19 +14,20 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#059669',
-        tabBarInactiveTintColor: '#94a3b8',
+        tabBarActiveTintColor: colors.accentText,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
-          backgroundColor: '#ffffff',
-          borderTopWidth: 0,
+          backgroundColor: colors.tabBarBg,
+          borderTopWidth: isDarkMode ? 1 : 0,
+          borderTopColor: colors.tabBarBorder,
           height: tabHeight,
           paddingBottom: bottomPadding,
           paddingTop: 10,
-          shadowColor: '#0f172a',
+          shadowColor: isDarkMode ? 'transparent' : '#0f172a',
           shadowOffset: { width: 0, height: -4 },
-          shadowOpacity: 0.06,
+          shadowOpacity: isDarkMode ? 0 : 0.06,
           shadowRadius: 12,
-          elevation: 8,
+          elevation: isDarkMode ? 0 : 8,
         },
         tabBarLabelStyle: {
           fontSize: 10,
@@ -42,7 +45,7 @@ export default function TabLayout() {
         options={{
           title: 'หน้าหลัก',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+            <View style={[styles.iconContainer, focused && { backgroundColor: isDarkMode ? '#064e3b' : '#ecfdf5' }]}>
               <MaterialCommunityIcons 
                 name={focused ? "home" : "home-outline"} 
                 size={24} 
@@ -57,7 +60,7 @@ export default function TabLayout() {
         options={{
           title: 'ประวัติ',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+            <View style={[styles.iconContainer, focused && { backgroundColor: isDarkMode ? '#064e3b' : '#ecfdf5' }]}>
               <MaterialCommunityIcons 
                 name={focused ? "clock" : "clock-outline"} 
                 size={24} 
@@ -72,7 +75,7 @@ export default function TabLayout() {
         options={{
           title: 'สมาชิก',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+            <View style={[styles.iconContainer, focused && { backgroundColor: isDarkMode ? '#064e3b' : '#ecfdf5' }]}>
               <MaterialCommunityIcons 
                 name={focused ? "account-group" : "account-group-outline"} 
                 size={24} 
@@ -87,7 +90,7 @@ export default function TabLayout() {
         options={{
           title: 'แจ้งเตือน',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+            <View style={[styles.iconContainer, focused && { backgroundColor: isDarkMode ? '#064e3b' : '#ecfdf5' }]}>
               <MaterialCommunityIcons 
                 name={focused ? "bell" : "bell-outline"} 
                 size={24} 
@@ -102,7 +105,7 @@ export default function TabLayout() {
         options={{
           title: 'สถิติ',
           tabBarIcon: ({ color, focused }) => (
-            <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
+            <View style={[styles.iconContainer, focused && { backgroundColor: isDarkMode ? '#064e3b' : '#ecfdf5' }]}>
               <MaterialCommunityIcons 
                 name={focused ? "chart-line" : "chart-line-variant"} 
                 size={24} 
@@ -123,8 +126,5 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  iconContainerActive: {
-    backgroundColor: '#ecfdf5',
   },
 });

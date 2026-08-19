@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { supabase } from '../lib/supabase';
+import { supabase, checkAndSaveUserFamily } from '../lib/supabase';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: loginData, error } = await supabase.auth.signInWithPassword({
       email: email,
       password: password,
     });
@@ -49,11 +49,29 @@ export default function LoginScreen() {
 
       Alert.alert('เข้าสู่ระบบไม่สำเร็จ', errorMessage);
     } else {
-      Alert.alert(
-        'ยินดีต้อนรับกลับ!', 
-        'เข้าสู่ระบบเรียบร้อยแล้ว กำลังพาท่านเข้าสู่หน้าหลัก...'
-      );
-      router.replace('/family-setup');
+      const userId = loginData?.session?.user?.id;
+      let hasFamily = false;
+
+      if (userId) {
+        const familyInfo = await checkAndSaveUserFamily(userId);
+        if (familyInfo?.familyId) {
+          hasFamily = true;
+        }
+      }
+
+      if (hasFamily) {
+        Alert.alert(
+          'ยินดีต้อนรับกลับ!', 
+          'เข้าสู่ระบบเรียบร้อยแล้ว กำลังพาท่านเข้าสู่หน้าหลัก...'
+        );
+        router.replace('/(tabs)/home');
+      } else {
+        Alert.alert(
+          'เข้าสู่ระบบสำเร็จ', 
+          'กรุณาตั้งค่าหรือเข้าร่วมครอบครัวเพื่อเริ่มใช้งาน...'
+        );
+        router.replace('/family-setup');
+      }
     }
   };
 
